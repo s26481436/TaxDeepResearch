@@ -31,6 +31,55 @@ sources:
     config:
       base_url: "https://cons.judicial.gov.tw"
 
+  cn-chinatax:
+    country: CN
+    connector: cn_chinatax
+    description: "国家税务总局 — 税收法规与规范性文件"
+    enabled: true
+    config:
+      base_url: "https://www.chinatax.gov.cn"
+      list_paths:
+        - "/chinatax/n810341/n810755/index.html"
+        - "/chinatax/n810341/n810765/index.html"
+        - "/chinatax/n810341/n810825/index.html"
+      keywords:
+        - "企业所得税"
+        - "增值税"
+        - "印花税"
+        - "环境保护税"
+        - "资源税"
+        - "城市维护建设税"
+        - "税收征收管理"
+        - "制造业"
+        - "小微企业"
+        - "研发费用"
+        - "加计扣除"
+        - "留抵退税"
+        - "出口退税"
+
+  cn-mof:
+    country: CN
+    connector: cn_mof
+    description: "财政部 — 税政司/条法司政策发布"
+    enabled: true
+    config:
+      base_url: "https://www.mof.gov.cn"
+      list_paths:
+        - "/gkml/szs/zhengcefabu/index.htm"
+        - "/gkml/tfs/index.htm"
+      keywords:
+        - "企业所得税"
+        - "增值税"
+        - "印花税"
+        - "环境保护税"
+        - "资源税"
+        - "城市维护建设税"
+        - "税收"
+        - "制造业"
+        - "小微企业"
+        - "研发费用"
+        - "加计扣除"
+
   us-federal-register:
     country: US
     connector: us_federal_register

@@ -2,6 +2,7 @@
 from pathlib import Path
 
 from taxwatch.connectors.base import RawDocument
+from taxwatch.normalize.cn_tax_html import CnTaxHtmlNormalizer
 from taxwatch.normalize.tw_law_json import TwLawJsonNormalizer
 from taxwatch.normalize.tw_ruling_html import TwRulingHtmlNormalizer
 
@@ -44,3 +45,42 @@ def test_tw_ruling_html_normalizer():
     all_text = " ".join(p.text for p in result.provisions)
     assert "所得稅法" in all_text
     assert "租賃所得" in all_text
+
+
+def test_cn_tax_html_normalizer_law():
+    raw_content = (FIXTURES / "cn_tax_sample.html").read_bytes()
+    raw = RawDocument(
+        external_id="cn-enterprise-income-tax-law",
+        content=raw_content,
+        content_type="text/html; charset=utf-8",
+    )
+
+    normalizer = CnTaxHtmlNormalizer()
+    result = normalizer.normalize(raw)
+
+    assert "企业所得税法" in result.title
+    assert len(result.provisions) >= 3
+    assert result.metadata["hierarchy_level"] == "law"
+
+    keys = [p.node_key for p in result.provisions]
+    assert any("#1" in k for k in keys)
+    assert any("#28" in k for k in keys)
+
+
+def test_cn_tax_html_normalizer_notice():
+    raw_content = (FIXTURES / "cn_notice_sample.html").read_bytes()
+    raw = RawDocument(
+        external_id="caishuigonggao-2026-3",
+        content=raw_content,
+        content_type="text/html; charset=utf-8",
+    )
+
+    normalizer = CnTaxHtmlNormalizer()
+    result = normalizer.normalize(raw)
+
+    assert len(result.provisions) >= 3
+    assert result.metadata["hierarchy_level"] == "notice"
+
+    all_text = " ".join(p.text for p in result.provisions)
+    assert "小型微利企业" in all_text
+    assert "研发费用" in all_text

@@ -39,12 +39,19 @@ def normalize_entity_key(key: str) -> str:
 
 
 def _infer_type(key: str) -> DocType:
-    if re.search(r"法#|條例#|法$|條例$", key):
+    # TW + CN statutes
+    if re.search(r"法#|條例#|条例#|法$|條例$|条例$", key):
         return DocType.STATUTE
-    if re.search(r"準則|辦法|規則|細則", key):
+    # TW + CN regulations
+    if re.search(r"準則|辦法|規則|細則|细则|办法|规则|暂行条例|暂行办法|管理办法", key):
         return DocType.REGULATION
+    # TW rulings
     if "台財稅" in key:
         return DocType.RULING
+    # TW constitutional interpretations
     if "釋字" in key or "憲判字" in key:
         return DocType.INTERPRETATION
+    # CN 文号 (公告/通知/批复)
+    if re.search(r"公告\d{4}年|财税[〔\[]|国税[发函]|税总[发函]", key):
+        return DocType.RULING
     return DocType.RULING
