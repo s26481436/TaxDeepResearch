@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}找不到資料{% endblock %}
+{% block heading %}找不到資料{% endblock %}
+
+{% block content %}
+<div class="panel">
+  <div class="empty">
+    <p style="font-size:15px;margin-bottom:12px">{{ message }}</p>
+    <a class="btn ghost" href="/">回到儀表板</a>
+  </div>
+</div>
+{% endblock %}

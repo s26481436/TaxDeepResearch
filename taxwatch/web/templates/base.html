@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}TaxWatch{% endblock %} · TaxWatch</title>
+<style>
+:root{
+  --bg:#f4f6fb; --panel:#fff; --ink:#1c2430; --muted:#66738a; --line:#e2e7f0;
+  --brand:#4f46e5; --brand-ink:#fff; --accent:#7c3aed;
+  --crit:#b91c1c; --crit-bg:#fee2e2; --major:#b45309; --major-bg:#fef3c7;
+  --minor:#15803d; --minor-bg:#dcfce7; --mutedbg:#eef1f6;
+  --add-bg:#dcfce7; --add-ink:#14532d; --del-bg:#fee2e2; --del-ink:#7f1d1d;
+  --radius:10px; --shadow:0 1px 3px rgba(16,24,40,.08),0 1px 2px rgba(16,24,40,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang TC","Noto Sans TC",sans-serif;
+  background:var(--bg);color:var(--ink);line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+.layout{display:flex;min-height:100vh}
+
+/* sidebar */
+.sidebar{width:232px;flex:0 0 232px;background:linear-gradient(170deg,#4f46e5,#7c3aed);
+  color:#fff;padding:20px 0;position:sticky;top:0;height:100vh;overflow-y:auto}
+.brand{padding:0 20px 18px;font-size:17px;font-weight:700;letter-spacing:.3px;
+  border-bottom:1px solid rgba(255,255,255,.16);margin-bottom:14px}
+.brand small{display:block;font-weight:400;font-size:11px;opacity:.72;letter-spacing:0}
+.nav a{display:flex;gap:10px;align-items:center;padding:10px 20px;font-size:14px;
+  color:rgba(255,255,255,.82);border-left:3px solid transparent;transition:.15s}
+.nav a:hover{background:rgba(255,255,255,.09);color:#fff}
+.nav a.on{background:rgba(255,255,255,.15);color:#fff;border-left-color:#fff;font-weight:600}
+.nav .ico{width:18px;text-align:center}
+
+/* main */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{background:var(--panel);border-bottom:1px solid var(--line);padding:14px 28px;
+  display:flex;justify-content:space-between;align-items:center;gap:16px}
+.topbar h1{font-size:19px;font-weight:650}
+.topbar .sub{font-size:12.5px;color:var(--muted);margin-top:2px}
+.wrap{padding:24px 28px 48px;max-width:1280px;width:100%}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);margin-bottom:20px;overflow:hidden}
+.panel-hd{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;
+  justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.panel-hd h2{font-size:14.5px;font-weight:650}
+.panel-bd{padding:18px}
+.panel-bd.flush{padding:0}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px 18px;box-shadow:var(--shadow)}
+.stat .lbl{font-size:12px;color:var(--muted);letter-spacing:.2px}
+.stat .val{font-size:26px;font-weight:700;margin-top:4px;color:var(--brand)}
+.stat .val.warn{color:var(--major)}
+.stat .val.bad{color:var(--crit)}
+
+/* cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));gap:14px}
+.tcard{display:block;background:var(--panel);border:1px solid var(--line);
+  border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);transition:.15s}
+.tcard:hover{border-color:var(--brand);transform:translateY(-1px);
+  box-shadow:0 6px 16px rgba(79,70,229,.14)}
+.tcard h3{font-size:15px;font-weight:650;margin-bottom:4px}
+.tcard .meta{font-size:12px;color:var(--muted);margin-bottom:12px}
+.tcard .row{display:flex;justify-content:space-between;font-size:12.5px;padding:4px 0}
+.tcard .row b{color:var(--brand);font-variant-numeric:tabular-nums}
+
+/* badges + tags */
+.badge{display:inline-block;padding:2px 9px;border-radius:11px;font-size:11.5px;font-weight:650}
+.badge-critical{background:var(--crit-bg);color:var(--crit)}
+.badge-major{background:var(--major-bg);color:var(--major)}
+.badge-minor{background:var(--minor-bg);color:var(--minor)}
+.badge-muted{background:var(--mutedbg);color:var(--muted)}
+.tag{display:inline-block;padding:2px 8px;background:var(--mutedbg);color:var(--muted);
+  border-radius:5px;font-size:11.5px;margin:0 4px 4px 0}
+
+/* tables */
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+thead th{background:#f8f9fc;text-align:left;padding:10px 14px;font-weight:650;
+  font-size:12px;color:var(--muted);border-bottom:1px solid var(--line);white-space:nowrap}
+tbody td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:#fafbfe}
+.tbl-scroll{overflow-x:auto}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.num{font-variant-numeric:tabular-nums;text-align:right}
+
+/* timeline */
+.tl{position:relative;padding-left:22px}
+.tl::before{content:"";position:absolute;left:5px;top:4px;bottom:4px;width:2px;background:var(--line)}
+.tl-item{position:relative;padding:0 0 18px 4px}
+.tl-item::before{content:"";position:absolute;left:-21px;top:5px;width:10px;height:10px;
+  border-radius:50%;background:var(--brand);border:2px solid #fff;box-shadow:0 0 0 2px var(--line)}
+.tl-item.crit::before{background:var(--crit)}
+.tl-date{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.tl-title{font-size:14px;font-weight:600;margin:1px 0 4px}
+
+/* diff */
+.diff{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.diff-pane{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.diff-hd{padding:8px 12px;font-size:12px;font-weight:650;background:#f8f9fc;
+  border-bottom:1px solid var(--line)}
+.diff-hd.old{background:var(--del-bg);color:var(--del-ink)}
+.diff-hd.new{background:var(--add-bg);color:var(--add-ink)}
+.diff-bd{padding:12px;font-size:13px;line-height:1.75;white-space:pre-wrap;
+  word-break:break-word;max-height:420px;overflow-y:auto}
+pre.udiff{background:#0f172a;color:#e2e8f0;padding:14px;border-radius:8px;overflow-x:auto;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.6}
+pre.udiff .p{color:#86efac}
+pre.udiff .m{color:#fca5a5}
+
+/* forms + buttons */
+.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-size:11.5px;color:var(--muted);font-weight:600}
+select,input[type=text],input[type=date],input[type=number]{padding:6px 10px;border:1px solid var(--line);
+  border-radius:7px;font-size:13px;background:#fff;color:var(--ink);font-family:inherit}
+.btn{display:inline-block;padding:7px 14px;border:1px solid var(--brand);border-radius:7px;
+  background:var(--brand);color:var(--brand-ink);font-size:13px;font-weight:600;cursor:pointer}
+.btn:hover{background:#4338ca;border-color:#4338ca}
+.btn.ghost{background:#fff;color:var(--brand)}
+.btn.ghost:hover{background:#f5f3ff}
+
+.empty{padding:40px 20px;text-align:center;color:var(--muted);font-size:13.5px}
+.kv{display:grid;grid-template-columns:130px 1fr;gap:8px 16px;font-size:13.5px}
+.kv dt{color:var(--muted);font-weight:600}
+.note{padding:12px 14px;border-radius:8px;font-size:13px;background:var(--major-bg);
+  color:var(--major);border:1px solid #fde68a}
+.crumb{font-size:12.5px;color:var(--muted);margin-bottom:10px}
+.crumb a:hover{color:var(--brand);text-decoration:underline}
+footer{padding:20px 28px;color:var(--muted);font-size:11.5px;border-top:1px solid var(--line)}
+
+@media(max-width:860px){
+  .layout{flex-direction:column}
+  .sidebar{width:100%;flex:none;height:auto;position:static;padding:12px 0}
+  .nav{display:flex;overflow-x:auto}
+  .nav a{border-left:0;border-bottom:3px solid transparent;white-space:nowrap;padding:10px 14px}
+  .nav a.on{border-left:0;border-bottom-color:#fff}
+  .brand{padding:0 16px 12px}
+  .wrap,.topbar{padding-left:16px;padding-right:16px}
+  .diff{grid-template-columns:1fr}
+  .kv{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">TaxWatch<small>稅法異動自動監控</small></div>
+    <nav class="nav">
+      <a href="/" class="{{ 'on' if active=='dashboard' }}"><span class="ico">▦</span>儀表板</a>
+      <a href="/tax-types" class="{{ 'on' if active=='tax-types' }}"><span class="ico">◈</span>稅種狀態</a>
+      <a href="/documents" class="{{ 'on' if active=='documents' }}"><span class="ico">▤</span>法規版本</a>
+      <a href="/changes" class="{{ 'on' if active=='changes' }}"><span class="ico">⇄</span>異動與分析</a>
+      <a href="/runs" class="{{ 'on' if active=='runs' }}"><span class="ico">◷</span>抓取健康度</a>
+      <a href="/settings" class="{{ 'on' if active=='settings' }}"><span class="ico">⚙</span>設定</a>
+    </nav>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <h1>{% block heading %}{% endblock %}</h1>
+        <div class="sub">{% block subheading %}{% endblock %}</div>
+      </div>
+      {% block topbar_actions %}{% endblock %}
+    </div>
+
+    <div class="wrap">
+      {% block content %}{% endblock %}
+    </div>
+
+    <footer>
+      TaxWatch · 監控台灣／中國／美國稅法異動 ·
+      ⚠️ 分析內容由 LLM 生成，僅供參考，非法律意見；實際適用請諮詢專業稅務人員。
+    </footer>
+  </div>
+</div>
+</body>
+</html>

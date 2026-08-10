@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}儀表板{% endblock %}
+{% block heading %}儀表板{% endblock %}
+{% block subheading %}最近 {{ days }} 天的稅法異動概覽{% endblock %}
+
+{% block topbar_actions %}
+<form class="filters" method="get">
+  <div class="field">
+    <label for="days">觀察區間</label>
+    <select id="days" name="days" onchange="this.form.submit()">
+      {% for d in [7, 14, 30, 90] %}
+      <option value="{{ d }}" {{ 'selected' if days == d }}>最近 {{ d }} 天</option>
+      {% endfor %}
+    </select>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="stats">
+  <div class="stat"><div class="lbl">監控稅種</div><div class="val">{{ stats.tax_type_count }}</div></div>
+  <div class="stat"><div class="lbl">法規文件</div><div class="val">{{ stats.document_count }}</div></div>
+  <div class="stat">
+    <div class="lbl">期間異動</div>
+    <div class="val {{ 'warn' if stats.recent_changes }}">{{ stats.recent_changes }}</div>
+  </div>
+  <div class="stat">
+    <div class="lbl">待分析</div>
+    <div class="val {{ 'bad' if stats.pending_review }}">{{ stats.pending_review }}</div>
+  </div>
+  <div class="stat">
+    <div class="lbl">平均信心度</div>
+    <div class="val">
+      {%- if stats.average_confidence is not none -%}
+        {{ (stats.average_confidence * 100) | round | int }}%
+      {%- else -%}—{%- endif -%}
+    </div>
+  </div>
+  <div class="stat">
+    <div class="lbl">抓取成功率</div>
+    <div class="val">
+      {%- if health.success_rate is not none -%}
+        {{ (health.success_rate * 100) | round | int }}%
+      {%- else -%}—{%- endif -%}
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-hd">
+    <h2>稅種最新狀態</h2>
+    <a class="btn ghost" href="/tax-types">全部稅種</a>
+  </div>
+  <div class="panel-bd">
+    {% if tax_types %}
+    <div class="cards">
+      {% for t in tax_types %}
+      <a class="tcard" href="/tax-types/{{ t.key }}">
+        <h3>{{ t.name }}</h3>
+        <div class="meta">
+          {{ t.countries | join(' · ') }} ·
+          {% if t.days_since_update is none %}尚未抓取
+          {% elif t.days_since_update == 0 %}今日更新
+          {% else %}{{ t.days_since_update }} 天前更新{% endif %}
+        </div>
+        <div class="row"><span>法規數</span><b>{{ t.document_count }}</b></div>
+        <div class="row"><span>累積版本</span><b>{{ t.version_count }}</b></div>
+        <div class="row">
+          <span>期間異動</span>
+          <span>
+            {% if t.status == 'critical' %}<span class="badge badge-critical">{{ t.recent_changes }} 重大</span>
+            {% elif t.status == 'changed' %}<span class="badge badge-major">{{ t.recent_changes }} 筆</span>
+            {% else %}<span class="badge badge-minor">穩定</span>{% endif %}
+          </span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">尚無資料。執行 <span class="mono">taxwatch run --source &lt;key&gt;</span> 後即可看到稅種狀態。</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-hd">
+    <h2>最近異動</h2>
+    <a class="btn ghost" href="/changes?days={{ days }}">全部異動</a>
+  </div>
+  <div class="panel-bd">
+    {% if changes %}
+    <div class="tl">
+      {% for c in changes %}
+      <div class="tl-item {{ 'crit' if c.severity == 'critical' }}">
+        <div class="tl-date">{{ c.detected_at | shortdate }} · {{ c.country }} · {{ c.tax_name }}</div>
+        <div class="tl-title"><a href="/changes/{{ c.id }}">{{ c.document_title }} — {{ c.node_key }}</a></div>
+        {% if c.summary %}<div style="font-size:13px;color:var(--muted)">{{ c.summary }}</div>{% endif %}
+        <div style="margin-top:6px">
+          <span class="badge {{ c.severity | severity_class }}">{{ c.severity }}</span>
+          <span class="tag">{{ c.change_type }}</span>
+          {% if c.effective_date %}<span class="tag">生效 {{ c.effective_date }}</span>{% endif %}
+          {% if c.confidence is not none %}<span class="tag">信心 {{ (c.confidence * 100) | round | int }}%</span>
+          {% else %}<span class="tag">未分析</span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">最近 {{ days }} 天沒有偵測到異動。</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

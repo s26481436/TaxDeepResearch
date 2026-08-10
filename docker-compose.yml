@@ -15,5 +15,22 @@ services:
       timeout: 3s
       retries: 5
 
+  web:
+    build: .
+    command: taxwatch serve --host 0.0.0.0 --port 8000
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://taxwatch:${POSTGRES_PASSWORD:-taxwatch_dev}@postgres:5432/taxwatch
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://localhost:8000/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-not-needed}
+      LLM_MODEL: ${LLM_MODEL:-default}
+      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
+      BRAVE_SEARCH_ENABLED: ${BRAVE_SEARCH_ENABLED:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pgdata:

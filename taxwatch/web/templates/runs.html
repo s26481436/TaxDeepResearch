@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}抓取健康度{% endblock %}
+{% block heading %}抓取健康度{% endblock %}
+{% block subheading %}管線執行紀錄與失敗稽核{% endblock %}
+
+{% block content %}
+<div class="stats">
+  <div class="stat"><div class="lbl">總執行次數</div><div class="val">{{ health.total }}</div></div>
+  <div class="stat">
+    <div class="lbl">成功率</div>
+    <div class="val">
+      {%- if health.success_rate is not none -%}{{ (health.success_rate * 100) | round | int }}%
+      {%- else -%}—{%- endif -%}
+    </div>
+  </div>
+  <div class="stat"><div class="lbl">失敗</div><div class="val {{ 'bad' if health.failed }}">{{ health.failed }}</div></div>
+  <div class="stat"><div class="lbl">執行中</div><div class="val">{{ health.running }}</div></div>
+</div>
+
+<div class="panel">
+  <div class="panel-hd"><h2>近期執行</h2></div>
+  <div class="panel-bd flush tbl-scroll">
+    {% if runs %}
+    <table>
+      <thead>
+        <tr><th>#</th><th>來源</th><th>類型</th><th>觸發</th><th>狀態</th>
+            <th>開始</th><th class="num">耗時</th><th>統計／錯誤</th></tr>
+      </thead>
+      <tbody>
+        {% for r in runs %}
+        <tr>
+          <td class="mono">{{ r.id }}</td>
+          <td class="mono">{{ r.source_key or '—' }}</td>
+          <td>{{ r.job_type }}</td>
+          <td><span class="tag">{{ r.trigger }}</span></td>
+          <td>
+            <span class="badge {{ 'badge-minor' if r.status == 'completed'
+                                  else 'badge-critical' if r.status == 'failed'
+                                  else 'badge-major' }}">{{ r.status }}</span>
+          </td>
+          <td class="mono">{{ r.started_at | shortdate }}</td>
+          <td class="num mono">{% if r.duration_seconds %}{{ r.duration_seconds }}s{% else %}—{% endif %}</td>
+          <td>
+            {% if r.error %}
+              <span style="color:var(--crit);font-size:12.5px">{{ r.error[:180] }}</span>
+            {% elif r.stats %}
+              {% for k, v in r.stats.items() %}<span class="tag">{{ k }}: {{ v }}</span>{% endfor %}
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">尚無執行紀錄。</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}{{ summary.name }}{% endblock %}
+{% block heading %}{{ summary.name }}{% endblock %}
+{% block subheading %}{{ summary.countries | join(' · ') }} · 最近 {{ days }} 天{% endblock %}
+
+{% block content %}
+<div class="crumb"><a href="/tax-types">稅種狀態</a> / {{ summary.name }}</div>
+
+<div class="stats">
+  <div class="stat"><div class="lbl">法規文件</div><div class="val">{{ summary.statistics.document_count }}</div></div>
+  <div class="stat"><div class="lbl">累積版本</div><div class="val">{{ summary.statistics.version_count }}</div></div>
+  <div class="stat">
+    <div class="lbl">期間異動</div>
+    <div class="val {{ 'warn' if summary.statistics.change_count }}">{{ summary.statistics.change_count }}</div>
+  </div>
+  <div class="stat"><div class="lbl">已分析</div><div class="val">{{ summary.statistics.analysed_count }}</div></div>
+  <div class="stat">
+    <div class="lbl">平均信心度</div>
+    <div class="val">
+      {%- if summary.statistics.average_confidence is not none -%}
+        {{ (summary.statistics.average_confidence * 100) | round | int }}%
+      {%- else -%}—{%- endif -%}
+    </div>
+  </div>
+  <div class="stat">
+    <div class="lbl">最後更新</div>
+    <div class="val" style="font-size:17px">{{ summary.last_updated | shortdate or '—' }}</div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-hd"><h2>相關法規（子母法層級）</h2></div>
+  <div class="panel-bd flush tbl-scroll">
+    <table>
+      <thead>
+        <tr><th>法規名稱</th><th>類型</th><th>轄區</th><th class="num">條文數</th>
+            <th class="num">版本</th><th>首次收錄</th><th>最後更新</th></tr>
+      </thead>
+      <tbody>
+        {% for d in summary.documents %}
+        <tr>
+          <td><a href="/documents/{{ d.external_id | urlencode }}"><strong>{{ d.title }}</strong></a></td>
+          <td><span class="tag">{{ d.doc_type }}</span></td>
+          <td>{{ d.country }}</td>
+          <td class="num">{{ d.provision_count }}</td>
+          <td class="num">{{ d.version_count }}</td>
+          <td class="mono">{{ d.first_seen | shortdate or '—' }}</td>
+          <td class="mono">{{ d.last_updated | shortdate or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-hd"><h2>異動與影響分析</h2></div>
+  <div class="panel-bd">
+    {% if summary.changes %}
+    <div class="tl">
+      {% for c in summary.changes %}
+      <div class="tl-item {{ 'crit' if c.severity == 'critical' }}">
+        <div class="tl-date">{{ c.detected_at | shortdate }}</div>
+        <div class="tl-title"><a href="/changes/{{ c.id }}">{{ c.document_title }} — {{ c.node_key }}</a></div>
+        {% if c.summary %}<div style="font-size:13px;color:var(--muted)">{{ c.summary }}</div>{% endif %}
+        <div style="margin-top:6px">
+          <span class="badge {{ c.severity | severity_class }}">{{ c.severity }}</span>
+          <span class="tag">{{ c.change_type }}</span>
+          {% if c.effective_date %}<span class="tag">生效 {{ c.effective_date }}</span>{% endif %}
+          {% for p in c.affected_parties %}<span class="tag">{{ p }}</span>{% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">最近 {{ days }} 天此稅種沒有異動。</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

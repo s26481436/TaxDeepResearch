@@ -36,6 +36,12 @@ dev = [
 [project.scripts]
 taxwatch = "taxwatch.cli:app"
 
+[tool.hatch.build.targets.wheel]
+# Ship the Jinja2 templates alongside the code — the dashboard reads them
+# from the installed package directory at runtime.
+packages = ["taxwatch"]
+artifacts = ["taxwatch/web/templates/*.html"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

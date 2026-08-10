@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}異動 #{{ change.id }}{% endblock %}
+{% block heading %}{{ change.document_title }}{% endblock %}
+{% block subheading %}{{ change.node_key }} · 偵測於 {{ change.detected_at | shortdate }}{% endblock %}
+
+{% block topbar_actions %}
+{% if change.document_url %}
+<a class="btn ghost" href="{{ change.document_url }}" target="_blank" rel="noopener">原文連結 ↗</a>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="crumb">
+  <a href="/changes">異動與分析</a> /
+  <a href="/tax-types/{{ change.tax_key }}">{{ change.tax_name }}</a> /
+  異動 #{{ change.id }}
+</div>
+
+<div class="panel">
+  <div class="panel-hd">
+    <h2>異動概要</h2>
+    <span>
+      <span class="badge {{ change.severity | severity_class }}">{{ change.severity }}</span>
+      <span class="tag">{{ change.change_type }}</span>
+      <span class="tag">{{ change.country }}</span>
+    </span>
+  </div>
+  <div class="panel-bd">
+    <dl class="kv">
+      <dt>法規</dt><dd><a href="/documents/{{ change.external_id | urlencode }}">{{ change.document_title }}</a></dd>
+      <dt>條文</dt><dd class="mono">{{ change.node_key }}</dd>
+      <dt>稅種</dt><dd>{{ change.tax_name }}</dd>
+      <dt>來源</dt><dd class="mono">{{ change.source_key }}</dd>
+      <dt>偵測時間</dt><dd class="mono">{{ change.detected_at }}</dd>
+    </dl>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-hd"><h2>條文對照</h2></div>
+  <div class="panel-bd">
+    <div class="diff">
+      <div class="diff-pane">
+        <div class="diff-hd old">修正前</div>
+        <div class="diff-bd">{{ change.old_text or '（新增條文，無舊版）' }}</div>
+      </div>
+      <div class="diff-pane">
+        <div class="diff-hd new">修正後</div>
+        <div class="diff-bd">{{ change.new_text or '（條文已刪除）' }}</div>
+      </div>
+    </div>
+    {% if change.diff_text %}
+    <h3 style="font-size:13px;margin:18px 0 8px;color:var(--muted)">Unified diff</h3>
+    <pre class="udiff">{{ change.diff_text }}</pre>
+    {% endif %}
+  </div>
+</div>
+
+{% if change.analysis %}
+{% set a = change.analysis %}
+<div class="panel">
+  <div class="panel-hd">
+    <h2>深度分析</h2>
+    <span>
+      <span class="badge {{ 'badge-minor' if a.confidence >= 0.8
+                            else 'badge-major' if a.confidence >= 0.6
+                            else 'badge-critical' }}">
+        信心度 {{ (a.confidence * 100) | round | int }}%
+      </span>
+      <span class="tag mono">{{ a.model }}</span>
+    </span>
+  </div>
+  <div class="panel-bd">
+    <h3 style="font-size:13.5px;margin-bottom:6px">異動摘要</h3>
+    <p style="margin-bottom:16px">{{ a.summary_zh or '（未提供）' }}</p>
+
+    <dl class="kv" style="margin-bottom:16px">
+      <dt>生效日期</dt><dd>{{ a.effective_date or '待確認' }}</dd>
+      <dt>受影響對象</dt>
+      <dd>
+        {% if a.affected_parties %}
+          {% for p in a.affected_parties %}<span class="tag">{{ p }}</span>{% endfor %}
+        {% else %}—{% endif %}
+      </dd>
+      <dt>分析時間</dt><dd class="mono">{{ a.created_at | shortdate }}</dd>
+    </dl>
+
+    {% if a.parent_law_impact %}
+    <h3 style="font-size:13.5px;margin-bottom:6px">母法脈絡影響（子母法）</h3>
+    <p style="margin-bottom:16px">{{ a.parent_law_impact }}</p>
+    {% endif %}
+
+    {% if a.citations %}
+    <h3 style="font-size:13.5px;margin-bottom:8px">引用來源</h3>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>來源</th><th>條文</th><th>連結</th></tr></thead>
+        <tbody>
+          {% for c in a.citations %}
+          <tr>
+            <td>{{ c.source }}</td>
+            <td class="mono">{{ c.article or '—' }}</td>
+            <td>{% if c.url %}<a href="{{ c.url }}" target="_blank" rel="noopener">開啟 ↗</a>{% else %}—{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    <div class="note" style="margin-top:16px">
+      ⚠️ 以上分析由 LLM 依條文原文與外部佐證生成，僅供參考，非法律意見。
+      關鍵欄位（生效日、稅率、金額）請以官方原文為準。
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="panel">
+  <div class="panel-hd"><h2>深度分析</h2></div>
+  <div class="empty">此異動尚未執行 LLM 分析。執行 <span class="mono">taxwatch analyze</span> 後即可查看。</div>
+</div>
+{% endif %}
+{% endblock %}

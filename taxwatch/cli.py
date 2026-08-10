@@ -113,5 +113,17 @@ def report(
     typer.echo(f"Report written to {outdir}")
 
 
+@app.command()
+def serve(
+    host: str = typer.Option("0.0.0.0", help="Bind address"),
+    port: int = typer.Option(8000, help="Port to listen on"),
+    reload: bool = typer.Option(False, help="Auto-reload on code changes"),
+):
+    """Serve the web dashboard (and JSON API) on http://host:port."""
+    import uvicorn
+
+    uvicorn.run("taxwatch.web.app:app", host=host, port=port, reload=reload)
+
+
 if __name__ == "__main__":
     app()

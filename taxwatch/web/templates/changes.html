@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}異動與分析{% endblock %}
+{% block heading %}異動與分析{% endblock %}
+{% block subheading %}最近 {{ days }} 天偵測到 {{ changes | length }} 筆異動{% endblock %}
+
+{% block topbar_actions %}
+<form class="filters" method="get">
+  <div class="field">
+    <label for="days">區間</label>
+    <select id="days" name="days">
+      {% for d, label in [(7, '7 天'), (30, '30 天'), (90, '90 天'),
+                          (365, '1 年'), (1095, '3 年'), (3650, '10 年')] %}
+      <option value="{{ d }}" {{ 'selected' if days == d }}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="country">轄區</label>
+    <select id="country" name="country">
+      <option value="">全部</option>
+      {% for c in ['TW', 'CN', 'US'] %}
+      <option value="{{ c }}" {{ 'selected' if country == c }}>{{ c }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="severity">嚴重度</label>
+    <select id="severity" name="severity">
+      <option value="">全部</option>
+      {% for s in ['critical', 'major', 'minor', 'cosmetic'] %}
+      <option value="{{ s }}" {{ 'selected' if severity == s }}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <button class="btn" type="submit">篩選</button>
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="panel">
+  <div class="panel-bd flush tbl-scroll">
+    {% if changes %}
+    <table>
+      <thead>
+        <tr><th>偵測日期</th><th>法規／條文</th><th>稅種</th><th>轄區</th>
+            <th>類型</th><th>嚴重度</th><th>生效日</th><th class="num">信心度</th></tr>
+      </thead>
+      <tbody>
+        {% for c in changes %}
+        <tr>
+          <td class="mono">{{ c.detected_at | shortdate }}</td>
+          <td>
+            <a href="/changes/{{ c.id }}"><strong>{{ c.document_title }}</strong></a>
+            <div class="mono" style="color:var(--muted);font-size:11.5px">{{ c.node_key }}</div>
+            {% if c.summary %}<div style="font-size:12.5px;color:var(--muted);margin-top:2px">{{ c.summary }}</div>{% endif %}
+          </td>
+          <td><a href="/tax-types/{{ c.tax_key }}">{{ c.tax_name }}</a></td>
+          <td>{{ c.country }}</td>
+          <td><span class="tag">{{ c.change_type }}</span></td>
+          <td><span class="badge {{ c.severity | severity_class }}">{{ c.severity }}</span></td>
+          <td class="mono">{{ c.effective_date or '—' }}</td>
+          <td class="num">
+            {%- if c.confidence is not none -%}{{ (c.confidence * 100) | round | int }}%
+            {%- else -%}<span style="color:var(--muted)">未分析</span>{%- endif -%}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">沒有符合條件的異動。</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

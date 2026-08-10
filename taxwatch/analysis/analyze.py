@@ -5,6 +5,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from taxwatch.analysis.brave_search import format_evidence, gather_evidence
 from taxwatch.analysis.client import get_llm_client
 from taxwatch.analysis.prompts import ANALYSIS_TEMPLATE, CONTEXT_TEMPLATE, SYSTEM_PROMPT
 from taxwatch.analysis.schema import ChangeAnalysis
@@ -22,6 +23,9 @@ def analyze_change(session: Session, change: Change) -> Analysis:
     old_text, new_text = _get_provision_texts(session, change)
     context_section = _build_context_section(session, change.node_key)
 
+    evidence = gather_evidence(doc_title, change.node_key, new_text or "")
+    evidence_section = format_evidence(evidence)
+
     user_prompt = ANALYSIS_TEMPLATE.format(
         document_title=doc_title,
         node_key=change.node_key,
@@ -30,6 +34,7 @@ def analyze_change(session: Session, change: Change) -> Analysis:
         new_text=new_text or "(無新版)",
         diff_text=change.diff_text,
         context_section=context_section,
+        evidence_section=evidence_section,
     )
 
     client = get_llm_client()
@@ -53,8 +58,8 @@ def analyze_change(session: Session, change: Change) -> Analysis:
     session.flush()
 
     logger.info(
-        "Analyzed change %d: %s (confidence=%.2f)",
-        change.id, change.node_key, result.confidence,
+        "Analyzed change %d: %s (confidence=%.2f, evidence=%d)",
+        change.id, change.node_key, result.confidence, len(evidence),
     )
     return analysis
 
