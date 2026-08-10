@@ -1,0 +1,41 @@
+sources:
+  tw-moj-law:
+    country: TW
+    connector: tw_moj_law
+    description: "全國法規資料庫 — 稅務相關法律與命令"
+    enabled: true
+    config:
+      law_categories:
+        - "G0340001"  # 所得稅法
+        - "G0340002"  # 營利事業所得稅查核準則
+        - "G0340003"  # 營業稅法
+        - "G0340070"  # 稅捐稽徵法
+        - "G0340004"  # 遺產及贈與稅法
+        - "G0340050"  # 房屋稅條例
+        - "G0340060"  # 土地稅法
+        - "G0340080"  # 特種貨物及勞務稅條例
+
+  tw-mof-ruling:
+    country: TW
+    connector: tw_mof_ruling
+    description: "財政部解釋函令與令函"
+    enabled: true
+    config:
+      base_url: "https://law-out.mof.gov.tw"
+
+  tw-constitutional:
+    country: TW
+    connector: tw_constitutional
+    description: "司法院釋字與憲判字（稅務相關）"
+    enabled: true
+    config:
+      base_url: "https://cons.judicial.gov.tw"
+
+  us-federal-register:
+    country: US
+    connector: us_federal_register
+    description: "Federal Register — IRS rules and notices"
+    enabled: false
+    config:
+      base_url: "https://www.federalregister.gov/api/v1"
+      agency: "internal-revenue-service"
