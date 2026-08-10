@@ -6,8 +6,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from taxwatch.corpus.store import make_classifier
 from taxwatch.models import Analysis, Change, Document, ProvisionNode, Snapshot, Source
-from taxwatch.taxonomy import UNCLASSIFIED, classify
+from taxwatch.taxonomy import UNCLASSIFIED
 
 
 class TaxTypeNotFound(LookupError):
@@ -17,10 +18,11 @@ class TaxTypeNotFound(LookupError):
 def list_tax_types(session: Session, *, recent_days: int = 7) -> list[dict[str, Any]]:
     """One row per tax type with its freshness and recent-change counts."""
     cutoff = datetime.utcnow() - timedelta(days=recent_days)
+    classify_doc = make_classifier(session)
     buckets: dict[str, dict[str, Any]] = {}
 
     for doc, source in _documents_with_sources(session):
-        tax_type = classify(doc.title)
+        tax_type = classify_doc(doc.title, doc.external_id)
         bucket = buckets.setdefault(tax_type.key, {
             "key": tax_type.key,
             "name": tax_type.name_zh,
@@ -80,6 +82,7 @@ def get_summary(
 ) -> dict[str, Any]:
     """Deep view of one tax type: its documents, versions and analysed changes."""
     cutoff = datetime.utcnow() - timedelta(days=recent_days)
+    classify_doc = make_classifier(session)
 
     documents: list[dict[str, Any]] = []
     changes: list[dict[str, Any]] = []
@@ -89,7 +92,7 @@ def get_summary(
     latest_overall: datetime | None = None
 
     for doc, source in _documents_with_sources(session):
-        tax_type = classify(doc.title)
+        tax_type = classify_doc(doc.title, doc.external_id)
         if tax_type.key != tax_key:
             continue
         tax_name = tax_type.name_zh

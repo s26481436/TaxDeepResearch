@@ -47,6 +47,43 @@
 </div>
 
 <div class="panel">
+  <div class="panel-hd"><h2>參考語料庫（本地引用解析）</h2></div>
+  <div class="panel-bd">
+    {% if corpora %}
+    <div class="tbl-scroll">
+      <table>
+        <thead>
+          <tr><th>語料庫</th><th>快照日期</th><th class="num">文件數</th>
+              <th class="num">可用文號</th><th class="num">已廢止</th></tr>
+        </thead>
+        <tbody>
+          {% for c in corpora %}
+          <tr>
+            <td class="mono"><strong>{{ c.corpus_key }}</strong></td>
+            <td class="mono">{{ c.corpus_version or '未標註' }}</td>
+            <td class="num">{{ "{:,}".format(c.documents) }}</td>
+            <td class="num">{{ "{:,}".format(c.with_document_number) }}</td>
+            <td class="num">{{ "{:,}".format(c.repealed) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:12px;font-size:12.5px;color:var(--muted)">
+      引用文號會先查本地語料庫，查不到才發出網路搜尋。時效性標記為快照當日狀態，
+      並非現況。
+    </p>
+    {% else %}
+    <div class="empty">
+      尚未匯入語料庫。執行
+      <span class="mono">taxwatch import-corpus &lt;file.parquet&gt; --version YYYY-MM-DD</span>
+      後，引用解析將改為本地查表。
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel">
   <div class="panel-hd"><h2>Brave Search（外部佐證）</h2></div>
   <div class="panel-bd">
     <dl class="kv">

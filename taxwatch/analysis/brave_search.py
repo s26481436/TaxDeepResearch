@@ -1,4 +1,4 @@
-"""Brave Search integration — external corroboration for change analysis.
+"""Brave Search API client.
 
 The diff tells us *what* the text says now; it cannot tell us whether an
 official announcement confirms the effective date, or whether a companion
@@ -88,7 +88,7 @@ def search(query: str, *, count: int | None = None) -> list[SearchResult]:
     return results
 
 
-def gather_evidence(
+def gather_results(
     document_title: str,
     node_key: str,
     new_text: str,
@@ -125,30 +125,6 @@ def build_queries(document_title: str, node_key: str, new_text: str) -> list[str
             seen.add(q)
             unique.append(q)
     return unique
-
-
-def format_evidence(results: list[SearchResult]) -> str:
-    """Render results as the prompt's 外部佐證 section."""
-    if not results:
-        return (
-            "## 外部佐證（Brave Search）\n\n"
-            "（查無外部資料，請僅依條文原文分析，並據此下修 confidence）"
-        )
-
-    lines = ["## 外部佐證（Brave Search）", ""]
-    for i, r in enumerate(results, start=1):
-        lines.append(f"{i}. **{r.title}**")
-        if r.description:
-            lines.append(f"   摘要：{r.description}")
-        if r.age:
-            lines.append(f"   時間：{r.age}")
-        lines.append(f"   來源：{r.url}")
-        lines.append("")
-    lines.append(
-        "⚠️ 以上為搜尋引擎結果，非官方原文。僅在與條文原文一致時採用；"
-        "若與原文衝突，以原文為準並在分析中指出矛盾。"
-    )
-    return "\n".join(lines)
 
 
 def _clean(text: str) -> str:

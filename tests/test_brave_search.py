@@ -5,10 +5,8 @@ import respx
 
 from taxwatch.analysis import brave_search
 from taxwatch.analysis.brave_search import (
-    SearchResult,
     build_queries,
-    format_evidence,
-    gather_evidence,
+    gather_results,
     search,
 )
 from taxwatch.config import Settings
@@ -116,32 +114,12 @@ def test_build_queries_non_numeric_article():
 
 
 @respx.mock
-def test_gather_evidence_deduplicates_by_url(enabled_settings):
+def test_gather_results_deduplicates_by_url(enabled_settings):
     respx.get(_ENDPOINT).mock(
         return_value=httpx.Response(200, json=_payload(
             {"title": "same", "description": "d", "url": "https://example.gov.cn/same"},
         ))
     )
     # Every query returns the same URL; it must collapse to one result.
-    results = gather_evidence("企業所得稅法", "企業所得稅法#28", "小型微利企業減按25%計入")
+    results = gather_results("企業所得稅法", "企業所得稅法#28", "小型微利企業減按25%計入")
     assert len(results) == 1
-
-
-def test_format_evidence_empty_signals_no_external_data():
-    text = format_evidence([])
-    assert "查無外部資料" in text
-    assert "confidence" in text
-
-
-def test_format_evidence_renders_sources():
-    text = format_evidence([
-        SearchResult(
-            title="公告", description="摘要內容",
-            url="https://x.gov.cn/1", age="1 day ago",
-        ),
-    ])
-    assert "公告" in text
-    assert "https://x.gov.cn/1" in text
-    assert "摘要內容" in text
-    # The caveat keeps the LLM from treating search snippets as authoritative.
-    assert "非官方原文" in text

@@ -13,10 +13,10 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from taxwatch.corpus.store import make_classifier
 from taxwatch.diff.engine import diff_provisions
 from taxwatch.models import Change, Document, ProvisionNode, Snapshot, Source
 from taxwatch.normalize.base import ProvisionData
-from taxwatch.taxonomy import classify
 
 
 class DocumentNotFound(LookupError):
@@ -58,9 +58,10 @@ def list_documents(
     if country:
         query = query.filter(Source.country == country)
 
+    classify_doc = make_classifier(session)
     rows: list[dict[str, Any]] = []
     for doc, source in query.limit(limit).all():
-        tax_type = classify(doc.title)
+        tax_type = classify_doc(doc.title, doc.external_id)
         if tax_key and tax_type.key != tax_key:
             continue
         snapshots = _snapshots(session, doc.id)
@@ -113,7 +114,7 @@ def get_history(session: Session, external_id: str) -> dict[str, Any]:
         )
         timeline.append(entry)
 
-    tax_type = classify(doc.title)
+    tax_type = make_classifier(session)(doc.title, doc.external_id)
     return {
         "external_id": doc.external_id,
         "title": doc.title,

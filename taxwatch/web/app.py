@@ -215,11 +215,22 @@ def settings_page(request: Request) -> HTMLResponse:
     except (OSError, ValueError):
         sources = {}
 
+    session = get_session()
+    try:
+        from taxwatch.corpus import store as corpus_store
+
+        corpora = corpus_store.stats(session)
+    except Exception:  # noqa: BLE001 — corpus table may not exist yet
+        corpora = []
+    finally:
+        session.close()
+
     return _page(
         request,
         "settings.html",
         active="settings",
         sources=sources,
+        corpora=corpora,
         llm={"base_url": settings.llm_base_url, "model": settings.llm_model},
         brave={
             "enabled": settings.brave_search_enabled,

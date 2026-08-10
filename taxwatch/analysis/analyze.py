@@ -5,8 +5,8 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from taxwatch.analysis.brave_search import format_evidence, gather_evidence
 from taxwatch.analysis.client import get_llm_client
+from taxwatch.analysis.evidence import CORPUS, format_evidence, gather
 from taxwatch.analysis.prompts import ANALYSIS_TEMPLATE, CONTEXT_TEMPLATE, SYSTEM_PROMPT
 from taxwatch.analysis.schema import ChangeAnalysis
 from taxwatch.graph.relations import get_entity_context
@@ -23,7 +23,7 @@ def analyze_change(session: Session, change: Change) -> Analysis:
     old_text, new_text = _get_provision_texts(session, change)
     context_section = _build_context_section(session, change.node_key)
 
-    evidence = gather_evidence(doc_title, change.node_key, new_text or "")
+    evidence = gather(session, doc_title, change.node_key, new_text or "")
     evidence_section = format_evidence(evidence)
 
     user_prompt = ANALYSIS_TEMPLATE.format(
@@ -57,9 +57,10 @@ def analyze_change(session: Session, change: Change) -> Analysis:
     session.add(analysis)
     session.flush()
 
+    corpus_hits = sum(1 for e in evidence if e.origin == CORPUS)
     logger.info(
-        "Analyzed change %d: %s (confidence=%.2f, evidence=%d)",
-        change.id, change.node_key, result.confidence, len(evidence),
+        "Analyzed change %d: %s (confidence=%.2f, evidence=%d [%d corpus])",
+        change.id, change.node_key, result.confidence, len(evidence), corpus_hits,
     )
     return analysis
 

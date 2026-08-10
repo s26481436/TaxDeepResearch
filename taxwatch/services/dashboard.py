@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from taxwatch.corpus.store import make_classifier
 from taxwatch.models import (
     Analysis,
     Change,
@@ -15,7 +16,6 @@ from taxwatch.models import (
     Snapshot,
     Source,
 )
-from taxwatch.taxonomy import classify
 
 
 class ChangeNotFound(LookupError):
@@ -25,9 +25,12 @@ class ChangeNotFound(LookupError):
 def get_stats(session: Session, *, recent_days: int = 7) -> dict[str, Any]:
     cutoff = datetime.utcnow() - timedelta(days=recent_days)
 
+    classify_doc = make_classifier(session)
     tax_keys = {
-        classify(title).key
-        for (title,) in session.query(Document.title).all()
+        classify_doc(title, external_id).key
+        for title, external_id in session.query(
+            Document.title, Document.external_id
+        ).all()
     }
 
     recent_changes = session.query(Change).filter(Change.detected_at >= cutoff).count()
@@ -79,9 +82,10 @@ def list_changes(
     if severity:
         query = query.filter(Change.severity == severity)
 
+    classify_doc = make_classifier(session)
     rows: list[dict[str, Any]] = []
     for change, doc, source, analysis in query.order_by(Change.detected_at.desc()).all():
-        tax_type = classify(doc.title)
+        tax_type = classify_doc(doc.title, doc.external_id)
         if tax_key and tax_type.key != tax_key:
             continue
         rows.append(_change_row(change, doc, source, analysis, tax_type))
@@ -103,7 +107,9 @@ def get_change_detail(session: Session, change_id: int) -> dict[str, Any]:
         raise ChangeNotFound(str(change_id))
 
     change, doc, source, analysis = row
-    detail = _change_row(change, doc, source, analysis, classify(doc.title))
+    classify_doc = make_classifier(session)
+    detail = _change_row(change, doc, source, analysis,
+                         classify_doc(doc.title, doc.external_id))
     detail["diff_text"] = change.diff_text
     detail["old_text"], detail["new_text"] = _provision_texts(session, change)
     detail["analysis"] = (

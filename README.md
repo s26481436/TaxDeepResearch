@@ -40,7 +40,8 @@ Connectors ─▶ Normalizers ─▶ Snapshot ─▶ Diff ─▶ Legal Graph ─
 | 快照 | `taxwatch/jobs/` | 正規化後文字的 SHA-256，避開廣告與時間戳造成的假異動 |
 | Diff | `taxwatch/diff/` | 以條號對齊，偵測新增／刪除／修改／條號變更 |
 | 關聯圖 | `taxwatch/graph/` | 從條文抽引用，建立子母法與函釋關聯 |
-| 分析 | `taxwatch/analysis/` | LLM 結構化輸出 + Brave Search 外部佐證 |
+| 語料庫 | `taxwatch/corpus/` | 本地法規庫，引用先查表再決定要不要搜尋 |
+| 分析 | `taxwatch/analysis/` | LLM 結構化輸出 + 語料庫原文 + Brave Search |
 | 查詢 | `taxwatch/services/` | API 與 Web 共用的查詢邏輯 |
 | 呈現 | `taxwatch/api/`、`taxwatch/web/` | JSON API 與 server-rendered Dashboard |
 
@@ -96,9 +97,40 @@ GET  /api/runs                               執行紀錄與健康度
 GET  /api/stats                              儀表板統計
 ```
 
-## Brave Search 外部佐證
+## 外部佐證：語料庫優先，搜尋墊底
 
-分析每筆異動時會搜尋官方公告來交叉驗證生效日與配套措施：
+分析每筆異動時要回答「這條引用的文件到底寫了什麼」。兩個來源，權重不同：
+
+```
+異動條文 → 抽出引用的文號
+   ├─ 1. 查本地語料庫  → 命中即為官方原文，可權威引用，不發網路請求
+   └─ 2. 查不到才搜尋  → 第三方摘要，僅供指路，與原文衝突時以原文為準
+```
+
+prompt 把兩者分成不同章節呈現，語料庫段落**不帶**「非官方原文」的但書，
+搜尋段落則保留。標記為廢止／失效的法規會加上 ⛔ 並要求 LLM 不得當作現行依據。
+
+### 匯入語料庫
+
+```bash
+pip install -e ".[corpus]"
+taxwatch import-corpus corpus.parquet --version 2026-02-27
+```
+
+以 [chinatax-policy-corpus](https://huggingface.co/datasets/salpt/chinatax-policy-corpus)
+實測（5,593 筆、1984–2026、920 萬字）：
+
+| 指標 | 數值 |
+|---|---|
+| 匯入耗時 | 0.8 秒 |
+| 帶文號可供查表 | 4,876 筆（87%）|
+| 標記廢止／失效 | 738 筆 |
+| 正文引用可本地解析 | **55.3%** — 這些不再發出搜尋 |
+
+> ⚠️ 該語料庫為 **CC-BY-NC-4.0（非商業）**。匯入的資料僅存於本地資料庫，
+> TaxWatch 不會再散布；`.gitignore` 已排除 `*.parquet`。商業用途前請先確認授權。
+
+### Brave Search
 
 ```bash
 BRAVE_SEARCH_API_KEY=your-key
@@ -107,12 +139,35 @@ BRAVE_SEARCH_MAX_RESULTS=5
 ```
 
 搜尋是 best-effort — 失敗或未設定 key 時會退化為「僅依原文分析」並下修 confidence，
-不會讓分析中斷。搜尋結果在 prompt 中明確標示為「非官方原文」，與原文衝突時以原文為準。
+不會讓分析中斷。
+
+## 以語料庫當評測集
+
+語料庫的 `tax_type` 是官方標註，可以拿來量測我們啟發式分類的真實準確率。
+這輪評測（n=2,123）直接抓出三個 bug：
+
+| 項目 | 修正前 | 修正後 |
+|---|---|---|
+| 文號辨識覆蓋率 | 65.9% | **94.9%** |
+| 稅種分類準確率 | 60.5% | **69.1%** |
+
+修掉的三個 bug：
+
+1. **全形括號漏配** — `税总[发函]\[?\d{4}\]?` 只吃 ASCII `[]`，
+   所有 `税总函〔2024〕5号` 全數對不上（313 筆）
+2. **`土地增值税` 被判成增值稅** — 排序把 `vat` 放在 `property` 前面，
+   而「土地增值税」含有「增值税」子字串
+3. **引用抽取吃進前導詞** — `根据财税〔2026〕15号` 被抽成 `根据财税…`，
+   導致語料庫永遠查不到、白白發出搜尋
+
+`税费征管` 的歸類是真實語意歧義（「关于优化**企业所得税**预缴纳税申报事项」
+官方標成徵管）。實測比較後採「徵管當 fallback」：只補其他分類判為 unknown 的情況，
+總體 +5.2%，且無任何稅種退步。語料庫內的文件一律直接採用官方標籤，不猜。
 
 ## 開發
 
 ```bash
-pytest              # 105 tests
+pytest              # 179 tests
 ruff check .
 ```
 
