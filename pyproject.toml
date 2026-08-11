@@ -28,8 +28,13 @@ dependencies = [
 corpus = [
     "pyarrow>=15,<26",
 ]
+# Reading the 申報規範 spreadsheet finance maintains.
+xlsx = [
+    "openpyxl>=3.1,<4",
+]
 dev = [
     "pyarrow>=15,<26",
+    "openpyxl>=3.1,<4",
     "pytest>=8.0,<9",
     "pytest-asyncio>=0.23,<1",
     "respx>=0.21,<1",
