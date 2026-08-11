@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+import sys
+
+# Ensure UTF-8 stdout/stderr on Windows (cp950 default breaks Chinese output)
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
 import typer
 
 app = typer.Typer(help="TaxWatch — 稅法異動自動化偵測系統")
@@ -18,7 +26,9 @@ def init_db():
 def seed_sources():
     """Load sources from config/sources.yaml into the database."""
     from taxwatch.config import load_sources
-    from taxwatch.db import get_session
+    from taxwatch.db import get_session, init_db as _init_db
+
+    _init_db()
     from taxwatch.models import Source
 
     sources = load_sources()
@@ -54,7 +64,10 @@ def run(
     stage: str | None = typer.Option(None, help="Stop after stage: fetch, diff, graph, analyze"),
 ):
     """Run the detection pipeline."""
+    from taxwatch.db import init_db as _init_db
     from taxwatch.jobs.pipeline import run_pipeline
+
+    _init_db()
 
     if not source and not all_sources:
         typer.echo("Specify --source <key> or --all")
@@ -68,8 +81,10 @@ def graph_show(
     entity: str = typer.Argument(..., help="Entity key, e.g. 所得稅法#14"),
 ):
     """Show legal graph relations for an entity."""
-    from taxwatch.db import get_session
+    from taxwatch.db import get_session, init_db as _init_db
     from taxwatch.graph.relations import get_entity_context
+
+    _init_db()
 
     session = get_session()
     try:
@@ -105,7 +120,10 @@ def report(
     """Generate change report."""
     from pathlib import Path
 
+    from taxwatch.db import init_db as _init_db
     from taxwatch.report.markdown import generate_report
+
+    _init_db()
 
     outdir = Path(out)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -133,6 +151,8 @@ def import_corpus(
     from taxwatch.corpus.loader import import_corpus as run_import
     from taxwatch.db import get_session
 
+    from taxwatch.db import init_db as _init_db
+    _init_db()
     session = get_session()
     try:
         stats = run_import(
