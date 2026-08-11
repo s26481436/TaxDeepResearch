@@ -282,8 +282,9 @@ BRAVE_SEARCH_MAX_RESULTS=5
 ## 開發
 
 ```bash
-pytest              # 387 tests
+pytest
 ruff check .
+ruff format --check .
 ```
 
 測試全部使用離線 fixture 與 in-memory SQLite，CI 不會打真實網站。
