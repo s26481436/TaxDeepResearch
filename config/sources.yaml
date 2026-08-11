@@ -86,8 +86,47 @@ sources:
   us-federal-register:
     country: US
     connector: us_federal_register
-    description: "Federal Register — IRS rules and notices"
-    enabled: false
+    description: "Federal Register — IRS proposed rules, final rules, and notices"
+    enabled: true
     config:
       base_url: "https://www.federalregister.gov/api/v1"
       agency: "internal-revenue-service"
+
+  us-ecfr:
+    country: US
+    connector: us_ecfr
+    description: "eCFR Title 26 — real-time federal tax regulation amendments (no API key)"
+    enabled: true
+    config:
+      # CFR Title 26 parts to track (no API key required)
+      parts:
+        - "1"    # Income Taxes (Subchapter A) — the largest part
+        - "20"   # Estate Tax (Subchapter B)
+        - "25"   # Gift Tax
+        - "31"   # Employment Taxes and Collection at Source
+        - "301"  # Procedure and Administration
+        - "302"  # Taxes Under the International Revenue Code of 1954
+
+  us-govinfo-cfr:
+    country: US
+    connector: us_govinfo_cfr
+    description: "govinfo.gov CFR Title 26 annual bulk XML — year-over-year snapshot"
+    enabled: true
+    config:
+      year: "2025"       # Annual edition year (update each January)
+      cfr_title: "26"    # Title 26 = Internal Revenue (22 volumes)
+
+  us-state-tax:
+    country: US
+    connector: us_state_tax
+    description: "US state tax statutes — CA/TX/FL/WA/NY/IL (HTML scraping)"
+    enabled: true
+    config:
+      states:
+        - CA   # Revenue and Taxation Code (income, corporate, sales)
+        - TX   # Texas Tax Code (franchise, sales; no state income tax)
+        - FL   # Florida Statutes (corporate income, sales, estate)
+        - WA   # WAC Title 458 (sales/B&O, no income tax)
+        - NY   # NY Tax Law (income, corporate, sales, estate)
+        - IL   # Illinois Revenue statutes (income, sales)
+      # ny_api_key: ""  # Optional: NYSenate API key for structured data
