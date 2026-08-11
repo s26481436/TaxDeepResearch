@@ -349,27 +349,51 @@ def _article_key(law_name: str | None, article: str) -> str:
     return f"{base}#{number}"
 
 
+_NAME_PREFIXES = (
+    "依據",
+    "依据",
+    "依照",
+    "依",
+    "按照",
+    "按",
+    "根据",
+    "根據",
+    "修正",
+    "修改",
+    "修订",
+    "增訂",
+    "刪除",
+    "删除",
+    "废止",
+    "查",
+)
+
+# A law name must end in a law-ish suffix; used to check that trimming left
+# something that is still a law rather than a fragment.
+_LAW_NAME_SHAPE = re.compile(
+    r"^[一-鿿]{2,20}(?:法|條例|条例|準則|准则|辦法|办法|規則|规则|細則|细则|規定|规定)$"
+)
+
+
 def _clean_law_name(name: str) -> str:
-    """Strip leading verb prefixes that regex may capture before the actual law name."""
-    prefixes = [
-        "依據",
-        "依据",
-        "依照",
-        "依",
-        "按照",
-        "按",
-        "根据",
-        "修正",
-        "修改",
-        "修订",
-        "增訂",
-        "刪除",
-        "删除",
-        "废止",
-        "查",
-    ]
-    for p in sorted(prefixes, key=len, reverse=True):
-        if name.startswith(p):
-            name = name[len(p) :]
-            break
-    return name.strip()
+    """Trim the verbs a greedy law-name match drags in front of the real name.
+
+    Two cases. A leading verb (依所得稅法) is simply dropped. Harder: the match
+    can start inside the *citing* document's self-reference, as in
+    「本準則依所得稅法第80條」 where the capture is 本準則依所得稅法 — left alone
+    that mints a node named after two laws at once. Cutting at the embedded
+    authority verb recovers 所得稅法, but only when what remains still reads as
+    a law name, so an ordinary name that happens to contain 依 survives intact.
+    """
+    name = name.strip()
+
+    for prefix in sorted(_NAME_PREFIXES, key=len, reverse=True):
+        if name.startswith(prefix):
+            return name[len(prefix) :].strip()
+
+    for marker in ("依據", "依据", "依照", "根據", "根据", "按照", "依", "按"):
+        _, sep, tail = name.rpartition(marker)
+        if sep and _LAW_NAME_SHAPE.match(tail.strip()):
+            return tail.strip()
+
+    return name
