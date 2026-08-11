@@ -28,6 +28,12 @@ app = FastAPI(title="TaxWatch Dashboard", version="0.1.0")
 for _router in ALL_ROUTERS:
     app.include_router(_router)
 
+
+@app.on_event("startup")
+def _startup():
+    from taxwatch.db import init_db
+    init_db()
+
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.filters["severity_class"] = lambda s: {
     "critical": "badge-critical",
