@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 4096
     llm_timeout: int = 120
 
+    # Brave Search — external corroboration during change analysis.
+    brave_search_api_key: str = ""
+    brave_search_enabled: bool = True
+    brave_search_max_results: int = 5
+    brave_search_timeout: int = 10
+
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_user: str = ""

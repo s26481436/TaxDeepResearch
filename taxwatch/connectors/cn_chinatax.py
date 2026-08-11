@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 
 from taxwatch.connectors.base import Connector, DocumentRef, RawDocument
 from taxwatch.connectors.http import create_client, fetch_with_retry
+from taxwatch.wenhao import extract_first
 
 _DOC_TYPE_MAP = {
     "法律": "statute",
@@ -114,19 +115,12 @@ class CnChinataxConnector(Connector):
 
 
 def _extract_wenhao(text: str) -> str | None:
-    """Extract 文号 from title or text, e.g. 国家税务总局公告2026年第5号."""
-    patterns = [
-        r"(国家税务总局公告\d{4}年第\d+号)",
-        r"(财税[〔\[]\d{4}[〕\]]\d+号)",
-        r"(财政部\s*税务总局公告\d{4}年第\d+号)",
-        r"(税总[发函]\[?\d{4}\]?\d+号)",
-        r"(国税[发函][〔\[]\d{4}[〕\]]\d+号)",
-    ]
-    for pat in patterns:
-        m = re.search(pat, text)
-        if m:
-            return re.sub(r"\s+", "", m.group(1))
-    return None
+    """Extract 文號 from a title, e.g. 国家税务总局公告2026年第5号.
+
+    Thin alias over :mod:`taxwatch.wenhao`, which owns the patterns so that
+    connectors, citation extraction and corpus lookup all agree on the key.
+    """
+    return extract_first(text)
 
 
 def _id_from_url(url: str) -> str | None:

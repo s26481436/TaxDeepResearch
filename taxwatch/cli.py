@@ -113,5 +113,55 @@ def report(
     typer.echo(f"Report written to {outdir}")
 
 
+@app.command()
+def import_corpus(
+    path: str = typer.Argument(..., help="Path to the corpus .parquet file"),
+    corpus_key: str = typer.Option("chinatax", help="Identifier for this corpus"),
+    version: str = typer.Option("", help="Corpus snapshot date, e.g. 2026-02-27"),
+    base_url: str = typer.Option(
+        "https://fgk.chinatax.gov.cn", help="Base URL for relative links"
+    ),
+):
+    """Import a reference corpus used to resolve citations without web searches.
+
+    Check the corpus licence before use — the chinatax policy corpus is
+    CC-BY-NC-4.0 (non-commercial). Imported data stays local and is never
+    redistributed by TaxWatch.
+    """
+    from pathlib import Path
+
+    from taxwatch.corpus.loader import import_corpus as run_import
+    from taxwatch.db import get_session
+
+    session = get_session()
+    try:
+        stats = run_import(
+            session,
+            Path(path),
+            corpus_key=corpus_key,
+            corpus_version=version,
+            base_url=base_url,
+        )
+    finally:
+        session.close()
+
+    typer.echo(
+        f"Imported {stats['stored']:,} documents into corpus '{corpus_key}' "
+        f"({stats['with_document_number']:,} with a 文號)"
+    )
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("0.0.0.0", help="Bind address"),
+    port: int = typer.Option(8000, help="Port to listen on"),
+    reload: bool = typer.Option(False, help="Auto-reload on code changes"),
+):
+    """Serve the web dashboard (and JSON API) on http://host:port."""
+    import uvicorn
+
+    uvicorn.run("taxwatch.web.app:app", host=host, port=port, reload=reload)
+
+
 if __name__ == "__main__":
     app()

@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}{{ history.title }}{% endblock %}
+{% block heading %}{{ history.title }}{% endblock %}
+{% block subheading %}
+{{ history.version_count }} 個版本 · {{ history.first_seen | shortdate }} 起收錄 ·
+最後更新 {{ history.last_updated | shortdate }}
+{% endblock %}
+
+{% block content %}
+<div class="crumb">
+  <a href="/documents">法規版本</a> /
+  <a href="/tax-types/{{ history.tax_key }}">{{ history.tax_name }}</a> /
+  {{ history.title }}
+</div>
+
+<div class="panel">
+  <div class="panel-hd">
+    <h2>版本比對</h2>
+    {% if history.url %}<a class="btn ghost" href="{{ history.url }}" target="_blank" rel="noopener">原文連結 ↗</a>{% endif %}
+  </div>
+  <div class="panel-bd">
+    <form class="filters" method="get">
+      <div class="field">
+        <label for="compare_from">起始版本</label>
+        <select id="compare_from" name="compare_from">
+          {% for v in history.timeline %}
+          <option value="{{ v.date | shortdate }}"
+            {{ 'selected' if compare_from == (v.date | shortdate) }}>
+            {{ v.version }} · {{ v.date | shortdate }}（{{ v.provision_count }} 條）
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="compare_to">比對版本</label>
+        <select id="compare_to" name="compare_to">
+          {% for v in history.timeline %}
+          <option value="{{ v.date | shortdate }}"
+            {{ 'selected' if compare_to == (v.date | shortdate) }}>
+            {{ v.version }} · {{ v.date | shortdate }}（{{ v.provision_count }} 條）
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="btn" type="submit">比對</button>
+    </form>
+
+    {% if diff %}
+    <div style="margin-top:18px">
+      {% if diff.unchanged %}
+      <div class="note">兩個日期落在同一個版本上（{{ diff.from_date | shortdate }}），沒有差異可比。</div>
+      {% else %}
+      <div class="stats" style="margin-bottom:16px">
+        <div class="stat"><div class="lbl">新增條文</div><div class="val">{{ diff.summary.added }}</div></div>
+        <div class="stat"><div class="lbl">刪除條文</div><div class="val bad">{{ diff.summary.removed }}</div></div>
+        <div class="stat"><div class="lbl">修改條文</div><div class="val warn">{{ diff.summary.modified }}</div></div>
+        <div class="stat"><div class="lbl">條號變更</div><div class="val">{{ diff.summary.renumbered }}</div></div>
+      </div>
+
+      {% for d in diff.diffs %}
+      <div class="panel">
+        <div class="panel-hd">
+          <h2>{{ d.node_key }}</h2>
+          <span>
+            <span class="badge {{ 'badge-critical' if d.change_type == 'removed'
+                                  else 'badge-minor' if d.change_type == 'added'
+                                  else 'badge-major' }}">{{ d.change_type }}</span>
+            <span class="tag">相似度 {{ (d.similarity * 100) | round | int }}%</span>
+          </span>
+        </div>
+        <div class="panel-bd">
+          <div class="diff">
+            <div class="diff-pane">
+              <div class="diff-hd old">舊版 · {{ diff.from_date | shortdate }}{% if d.old_heading %} · {{ d.old_heading }}{% endif %}</div>
+              <div class="diff-bd">{{ d.old_text or '（無此條文）' }}</div>
+            </div>
+            <div class="diff-pane">
+              <div class="diff-hd new">新版 · {{ diff.to_date | shortdate }}{% if d.new_heading %} · {{ d.new_heading }}{% endif %}</div>
+              <div class="diff-bd">{{ d.new_text or '（已刪除）' }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-hd"><h2>版本時間軸</h2></div>
+  <div class="panel-bd">
+    <div class="tl">
+      {% for v in history.timeline | reverse %}
+      <div class="tl-item {{ 'crit' if v.changes | selectattr('severity', 'equalto', 'critical') | list }}">
+        <div class="tl-date">{{ v.date | shortdate }} · <span class="mono">{{ v.content_hash[:12] }}</span></div>
+        <div class="tl-title">{{ v.version }} · {{ v.provision_count }} 條條文</div>
+        {% if v.changes %}
+        <div style="margin-top:4px">
+          {% for c in v.changes[:8] %}
+          <a href="/changes/{{ c.id }}"><span class="badge {{ c.severity | severity_class }}">{{ c.node_key }} · {{ c.change_type }}</span></a>
+          {% endfor %}
+          {% if v.changes | length > 8 %}<span class="tag">還有 {{ v.changes | length - 8 }} 筆</span>{% endif %}
+        </div>
+        {% else %}
+        <div style="font-size:12.5px;color:var(--muted)">首次收錄</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -206,6 +206,49 @@ class LegalRelation(Base):
     )
 
 
+# ---------- Reference corpus ----------
+
+class CorpusDocument(Base):
+    """A document from an external reference corpus.
+
+    Read-only background knowledge, kept apart from `documents`/`snapshots`
+    (which are *our* crawl history). Its job is to answer "what does the text
+    cited here actually say" without a web search, and to supply official
+    tax-type and status labels for documents we would otherwise classify by
+    heuristic.
+
+    A corpus is a snapshot taken at `corpus_version`; `aging` is the status as
+    of that date, not necessarily today's.
+    """
+
+    __tablename__ = "corpus_documents"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    corpus_key: Mapped[str] = mapped_column(String(100))
+    corpus_version: Mapped[str] = mapped_column(String(32), default="")
+    document_number: Mapped[str] = mapped_column(String(300), default="")
+    title: Mapped[str] = mapped_column(Text)
+    channel: Mapped[str] = mapped_column(String(100), default="")
+    effect_level: Mapped[str] = mapped_column(String(100), default="")
+    tax_type_raw: Mapped[str] = mapped_column(Text, default="")
+    tax_keys: Mapped[list] = mapped_column(JSON, default=list)
+    aging: Mapped[str] = mapped_column(String(50), default="")
+    labels: Mapped[str] = mapped_column(Text, default="")
+    issuing_department: Mapped[str] = mapped_column(Text, default="")
+    written_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    url: Mapped[str] = mapped_column(Text, default="")
+    content: Mapped[str] = mapped_column(Text, default="")
+
+    __table_args__ = (
+        Index("ix_corpus_docnum", "corpus_key", "document_number"),
+        Index("ix_corpus_title", "corpus_key", "title"),
+    )
+
+    @property
+    def is_repealed(self) -> bool:
+        return self.aging in ("全文废止", "全文失效")
+
+
 # ---------- Analysis ----------
 
 class Analysis(Base):

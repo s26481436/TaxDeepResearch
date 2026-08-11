@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}稅種狀態{% endblock %}
+{% block heading %}稅種狀態{% endblock %}
+{% block subheading %}每個稅種的最新版本、更新時間與異動數（最近 {{ days }} 天）{% endblock %}
+
+{% block topbar_actions %}
+<form class="filters" method="get">
+  <div class="field">
+    <label for="days">觀察區間</label>
+    <select id="days" name="days" onchange="this.form.submit()">
+      {% for d in [7, 30, 90, 365] %}
+      <option value="{{ d }}" {{ 'selected' if days == d }}>最近 {{ d }} 天</option>
+      {% endfor %}
+    </select>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+{% if tax_types %}
+<div class="panel">
+  <div class="panel-hd"><h2>共 {{ tax_types | length }} 個稅種</h2></div>
+  <div class="panel-bd flush tbl-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>稅種</th><th>轄區</th><th class="num">法規數</th><th class="num">版本數</th>
+          <th class="num">期間異動</th><th>最後更新</th><th>狀態</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tax_types %}
+        <tr>
+          <td><a href="/tax-types/{{ t.key }}"><strong>{{ t.name }}</strong></a></td>
+          <td>{{ t.countries | join(' · ') }}</td>
+          <td class="num">{{ t.document_count }}</td>
+          <td class="num">{{ t.version_count }}</td>
+          <td class="num">{{ t.recent_changes }}</td>
+          <td class="mono">
+            {%- if t.last_updated -%}
+              {{ t.last_updated | shortdate }}
+              {%- if t.days_since_update == 0 %}（今日）
+              {%- else %}（{{ t.days_since_update }} 天前）{% endif -%}
+            {%- else -%}—{%- endif -%}
+          </td>
+          <td>
+            {% if t.status == 'critical' %}<span class="badge badge-critical">重大異動</span>
+            {% elif t.status == 'changed' %}<span class="badge badge-major">近期異動</span>
+            {% else %}<span class="badge badge-minor">穩定</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="cards">
+  {% for t in tax_types %}
+  <a class="tcard" href="/tax-types/{{ t.key }}">
+    <h3>{{ t.name }}</h3>
+    <div class="meta">{{ t.countries | join(' · ') }}</div>
+    <div class="row"><span>法規數</span><b>{{ t.document_count }}</b></div>
+    <div class="row"><span>累積版本</span><b>{{ t.version_count }}</b></div>
+    <div class="row"><span>重大異動</span><b>{{ t.critical_changes }}</b></div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="panel"><div class="empty">尚無監控中的稅種。請先執行抓取管線。</div></div>
+{% endif %}
+{% endblock %}

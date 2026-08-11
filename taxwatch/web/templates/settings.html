@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}設定{% endblock %}
+{% block heading %}設定{% endblock %}
+{% block subheading %}目前生效的組態（唯讀，來自 .env 與 config/sources.yaml）{% endblock %}
+
+{% block content %}
+<div class="panel">
+  <div class="panel-hd"><h2>監控來源</h2></div>
+  <div class="panel-bd flush tbl-scroll">
+    {% if sources %}
+    <table>
+      <thead><tr><th>來源</th><th>轄區</th><th>Connector</th><th>說明</th><th>狀態</th><th>關鍵字</th></tr></thead>
+      <tbody>
+        {% for key, s in sources.items() %}
+        <tr>
+          <td class="mono"><strong>{{ key }}</strong></td>
+          <td>{{ s.country }}</td>
+          <td class="mono">{{ s.connector }}</td>
+          <td>{{ s.description }}</td>
+          <td>
+            {% if s.enabled %}<span class="badge badge-minor">啟用</span>
+            {% else %}<span class="badge badge-muted">停用</span>{% endif %}
+          </td>
+          <td>
+            {% for kw in (s.config.keywords or [])[:8] %}<span class="tag">{{ kw }}</span>{% endfor %}
+            {% if (s.config.keywords or []) | length > 8 %}
+            <span class="tag">+{{ (s.config.keywords | length) - 8 }}</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">讀不到 config/sources.yaml。</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-hd"><h2>LLM 分析</h2></div>
+  <div class="panel-bd">
+    <dl class="kv">
+      <dt>Base URL</dt><dd class="mono">{{ llm.base_url }}</dd>
+      <dt>模型</dt><dd class="mono">{{ llm.model }}</dd>
+    </dl>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-hd"><h2>參考語料庫（本地引用解析）</h2></div>
+  <div class="panel-bd">
+    {% if corpora %}
+    <div class="tbl-scroll">
+      <table>
+        <thead>
+          <tr><th>語料庫</th><th>快照日期</th><th class="num">文件數</th>
+              <th class="num">可用文號</th><th class="num">已廢止</th></tr>
+        </thead>
+        <tbody>
+          {% for c in corpora %}
+          <tr>
+            <td class="mono"><strong>{{ c.corpus_key }}</strong></td>
+            <td class="mono">{{ c.corpus_version or '未標註' }}</td>
+            <td class="num">{{ "{:,}".format(c.documents) }}</td>
+            <td class="num">{{ "{:,}".format(c.with_document_number) }}</td>
+            <td class="num">{{ "{:,}".format(c.repealed) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:12px;font-size:12.5px;color:var(--muted)">
+      引用文號會先查本地語料庫，查不到才發出網路搜尋。時效性標記為快照當日狀態，
+      並非現況。
+    </p>
+    {% else %}
+    <div class="empty">
+      尚未匯入語料庫。執行
+      <span class="mono">taxwatch import-corpus &lt;file.parquet&gt; --version YYYY-MM-DD</span>
+      後，引用解析將改為本地查表。
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-hd"><h2>Brave Search（外部佐證）</h2></div>
+  <div class="panel-bd">
+    <dl class="kv">
+      <dt>啟用</dt>
+      <dd>{% if brave.enabled %}<span class="badge badge-minor">是</span>
+          {% else %}<span class="badge badge-muted">否</span>{% endif %}</dd>
+      <dt>API Key</dt>
+      <dd>{% if brave.configured %}<span class="badge badge-minor">已設定</span>
+          {% else %}<span class="badge badge-critical">未設定</span>{% endif %}</dd>
+      <dt>每次結果數</dt><dd class="mono">{{ brave.max_results }}</dd>
+    </dl>
+    {% if brave.enabled and not brave.configured %}
+    <div class="note" style="margin-top:14px">
+      已啟用但未設定 <span class="mono">BRAVE_SEARCH_API_KEY</span>，
+      分析將在沒有外部佐證的情況下進行，信心度會下降。
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-hd"><h2>Email 通知</h2></div>
+  <div class="panel-bd">
+    <dl class="kv">
+      <dt>SMTP</dt>
+      <dd>{% if email.configured %}<span class="badge badge-minor">已設定</span>
+          {% else %}<span class="badge badge-muted">未設定</span>{% endif %}</dd>
+      <dt>收件人</dt><dd class="mono">{{ email.to or '—' }}</dd>
+    </dl>
+  </div>
+</div>
+{% endblock %}
