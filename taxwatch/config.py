@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     database_url: str = "postgresql+psycopg://taxwatch:taxwatch_dev@localhost:5432/taxwatch"
+    db_schema: str = ""  # PostgreSQL schema name; empty = use public (default)
 
     llm_base_url: str = "http://localhost:8000/v1"
     llm_api_key: str = "not-needed"
