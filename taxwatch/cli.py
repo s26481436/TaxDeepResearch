@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+import sys
+
+# Ensure UTF-8 stdout/stderr on Windows (cp950 default breaks Chinese output)
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
 import typer
 
 app = typer.Typer(help="TaxWatch — 稅法異動自動化偵測系統")

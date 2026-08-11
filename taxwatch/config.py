@@ -50,6 +50,6 @@ def get_settings() -> Settings:
 
 def load_sources(path: Path | None = None) -> dict[str, Any]:
     p = path or get_settings().sources_path
-    with open(p) as f:
+    with open(p, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     return data.get("sources", {})
