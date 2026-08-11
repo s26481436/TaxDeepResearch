@@ -32,16 +32,23 @@ def get_session() -> Session:
     return get_session_factory()()
 
 
-_db_initialized = False
+# Which tables this process has already ensured exist. Tracked as a set rather
+# than a bool so that a process whose models gained a table after the first
+# call — a `--reload` server that re-imported the models in place — does not
+# short-circuit and leave the new table uncreated.
+_initialized_tables: frozenset[str] = frozenset()
 
 
 def init_db():
     """Create schema (if configured) and all tables.
 
-    Safe to call multiple times — skips work after the first successful call.
+    Safe to call repeatedly: work is skipped once every table the models
+    currently define has been ensured in this process.
     """
-    global _db_initialized
-    if _db_initialized:
+    global _initialized_tables
+
+    expected = frozenset(Base.metadata.tables)
+    if expected <= _initialized_tables:
         return
 
     settings = get_settings()
@@ -65,7 +72,7 @@ def init_db():
 
     Base.metadata.create_all(engine)
     _add_missing_columns(engine)
-    _db_initialized = True
+    _initialized_tables = expected
 
 
 def _add_missing_columns(engine) -> None:

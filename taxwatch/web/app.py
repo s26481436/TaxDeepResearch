@@ -15,6 +15,7 @@ from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from taxwatch.api.lifespan import lifespan
 from taxwatch.api.routes import ALL_ROUTERS
 from taxwatch.config import load_sources
 from taxwatch.db import get_session
@@ -26,17 +27,10 @@ from taxwatch.services import tax_types as tax_types_svc
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-app = FastAPI(title="TaxWatch Dashboard", version="0.1.0")
+app = FastAPI(title="TaxWatch Dashboard", version="0.1.0", lifespan=lifespan)
 
 for _router in ALL_ROUTERS:
     app.include_router(_router)
-
-
-@app.on_event("startup")
-def _startup():
-    from taxwatch.db import init_db
-
-    init_db()
 
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
