@@ -47,7 +47,10 @@ _RULING_NUM = r"(?:台|臺)財稅(?:發|字)?第\s*[\d]+\s*號"
 _TW_ART = rf"(\d+(?:-\d+)?(?:之\d+)?|[{CN_NUMERAL_CHARS}]{{1,8}}(?:之[{CN_NUMERAL_CHARS}]{{1,3}})?)"
 
 # --- CN patterns ---
-_CN_LAW_SUFFIX = r"(?:法|条例|细则|办法|规则|暂行条例|暂行办法|管理办法)"
+# 规定/规程 matter here because 部门规章 like 税务人员税收业务违法行为处分规定
+# are named that way; without them the 依据 clause naming their parent is
+# unparseable and the document floats free of the hierarchy.
+_CN_LAW_SUFFIX = r"(?:法|条例|细则|办法|规则|规定|规程|暂行条例|暂行办法|管理办法)"
 _CN_LAW_NAME = rf"(?:[一-鿿]{{2,20}}{_CN_LAW_SUFFIX})"
 # 第28条 or 第二十八条 — CN statutes overwhelmingly use the latter.
 _CN_ART = rf"(\d+|[{CN_NUMERAL_CHARS}]{{1,8}})"
@@ -174,6 +177,24 @@ _RULES: list[_Rule] = [
         "authority_of",
         "law_article",
     ),
+    # CN: 依据整部法律 — 公告/规定 rarely cite an article, they just name the
+    # statutes they were made under: 根据《公务员法》《税收征收管理法》，制定本规定。
+    # This is the clause that puts a 公告 in the hierarchy at all. Several may be
+    # named in a row, with or without a separator, and each is an authority.
+    _Rule(
+        re.compile(
+            r"(?:依据|依照|按照|根据)\s*"
+            r"((?:《[一-鿿]{4,30}" + _CN_LAW_SUFFIX + r"》[\s、和及]*)+)"
+        ),
+        "authority_of",
+        "law_whole_run",
+    ),
+    # TW: 依據整部法律 — 「依所得稅法規定」訂定
+    _Rule(
+        re.compile(r"(?:依|依據|按|按照)\s*(" + _LAW_NAME + r")\s*(?:第\s*\d+\s*條)?\s*規定"),
+        "authority_of",
+        "law_whole_authority",
+    ),
     # CN: 修改/修订/废止
     _Rule(
         re.compile(
@@ -237,26 +258,44 @@ def extract_citations(
 
     for rule in _RULES:
         for match in rule.pattern.finditer(text):
-            entity_key = _entity_key(match, rule, parent_key=parent_key, self_key=self_key)
-            if not entity_key:
-                continue
+            for entity_key in _entity_keys(match, rule, parent_key=parent_key, self_key=self_key):
+                dedup_key = f"{entity_key}:{rule.relation_type}"
+                if dedup_key in seen:
+                    continue
+                seen.add(dedup_key)
 
-            dedup_key = f"{entity_key}:{rule.relation_type}"
-            if dedup_key in seen:
-                continue
-            seen.add(dedup_key)
-
-            citations.append(
-                Citation(
-                    raw_text=match.group(0).strip(),
-                    entity_key=entity_key,
-                    relation_type=rule.relation_type,
-                    confidence=1.0,
-                    extracted_by="regex",
+                citations.append(
+                    Citation(
+                        raw_text=match.group(0).strip(),
+                        entity_key=entity_key,
+                        relation_type=rule.relation_type,
+                        confidence=1.0,
+                        extracted_by="regex",
+                    )
                 )
-            )
 
     return citations
+
+
+def _entity_keys(
+    match: re.Match,
+    rule: _Rule,
+    *,
+    parent_key: str | None,
+    self_key: str | None,
+) -> list[str]:
+    """The node keys this match points at — usually one, empty to drop it."""
+    if rule.kind == "law_whole_run":
+        # 根据《A法》《B法》 names every one of them as an authority.
+        keys = []
+        for name in re.findall(r"《([^》]+)》", match.group(1)):
+            cleaned = _clean_law_name(name).strip()
+            if cleaned and cleaned not in _DEICTIC_STEMS:
+                keys.append(cleaned)
+        return keys
+
+    key = _entity_key(match, rule, parent_key=parent_key, self_key=self_key)
+    return [key] if key else []
 
 
 def _entity_key(
@@ -288,8 +327,9 @@ def _entity_key(
             key += f"#{groups[2]}"
         return key
 
-    if rule.kind == "law_whole":
-        name = _clean_law_name(match.group(1)).strip("《》")
+    if rule.kind in ("law_whole", "law_whole_authority"):
+        raw = next((g for g in match.groups() if g), "")
+        name = _clean_law_name(raw).strip("《》")
         return name if name and name not in _DEICTIC_STEMS else None
 
     # ruling / interpretation / wenhao — the match is already the identifier.

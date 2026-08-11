@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from sqlalchemy import create_engine, text
+import logging
+
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from taxwatch.config import get_settings
 from taxwatch.models import Base
+
+logger = logging.getLogger(__name__)
 
 _engine = None
 _session_factory: sessionmaker[Session] | None = None
@@ -60,4 +64,35 @@ def init_db():
             cursor.close()
 
     Base.metadata.create_all(engine)
+    _add_missing_columns(engine)
     _db_initialized = True
+
+
+def _add_missing_columns(engine) -> None:
+    """Add nullable columns the models gained since a database was created.
+
+    `create_all` creates missing *tables* but never alters existing ones, and
+    the project carries no migration tool. Without this, upgrading against a
+    populated database fails at the first query naming a new column — with the
+    only remedy being to drop the crawl history and start over.
+
+    Deliberately narrow: nullable adds only, which every supported backend
+    accepts without a table rewrite. Anything else (drops, type changes,
+    constraints) needs a real migration and should not be smuggled in here.
+    """
+    inspector = inspect(engine)
+
+    for table in Base.metadata.sorted_tables:
+        if not inspector.has_table(table.name):
+            continue
+        existing = {col["name"] for col in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name in existing or not column.nullable or column.primary_key:
+                continue
+            ddl = (
+                f'ALTER TABLE "{table.name}" '
+                f'ADD COLUMN "{column.name}" {column.type.compile(engine.dialect)}'
+            )
+            with engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info("Added missing column %s.%s", table.name, column.name)

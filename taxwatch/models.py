@@ -118,13 +118,33 @@ class Snapshot(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"))
     fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # When the issuing authority dated this version (成文/發布日期). Distinct from
+    # fetched_at: a first crawl pulls in decades of law at once, and ordering
+    # those by crawl time collapses the whole corpus onto today.
+    issued_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     content_hash: Mapped[str] = mapped_column(String(64))
     raw_path: Mapped[str] = mapped_column(Text, default="")
 
     document: Mapped[Document] = relationship(back_populates="snapshots")
     provisions: Mapped[list[ProvisionNode]] = relationship(back_populates="snapshot")
 
-    __table_args__ = (Index("ix_snapshot_doc_fetched", "document_id", "fetched_at"),)
+    __table_args__ = (
+        Index("ix_snapshot_doc_fetched", "document_id", "fetched_at"),
+        Index("ix_snapshot_doc_issued", "document_id", "issued_at"),
+    )
+
+    @property
+    def dated_at(self) -> datetime:
+        """The date this version belongs at on a timeline.
+
+        Falls back to the crawl time for sources that publish no date at all —
+        wrong, but at least monotonic, and flagged by `has_official_date`.
+        """
+        return self.issued_at or self.fetched_at
+
+    @property
+    def has_official_date(self) -> bool:
+        return self.issued_at is not None
 
 
 class ProvisionNode(Base):

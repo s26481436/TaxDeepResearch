@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}{{ view.title }} — 合併檢視{% endblock %}
+{% block heading %}{{ view.title }}{% endblock %}
+{% block subheading %}
+合併檢視 · {{ view.statistics.article_count }} 條
+· {{ view.statistics.supplemented_count }} 條有子法補充
+· 共 {{ view.statistics.supplement_count }} 項補充規定
+{% if view.as_of %}· 版本日期 {{ view.as_of | shortdate }}{% if not view.official_date %}（來源未提供發布日期，以抓取時間代替）{% endif %}{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="crumb">
+  <a href="/documents">法規版本</a> /
+  <a href="/documents/{{ view.external_id | urlencode }}">{{ view.title }}</a> /
+  合併檢視
+</div>
+
+<div class="panel">
+  <div class="panel-hd">
+    <h2>子法與相關規定</h2>
+    <a class="btn ghost" href="/documents/{{ view.external_id | urlencode }}">版本歷史</a>
+  </div>
+  <div class="panel-bd">
+    {% if view.child_documents %}
+    {% for c in view.child_documents %}
+    <span class="tag">{{ c.title }}</span>
+    {% endfor %}
+    {% else %}
+    <p style="color:var(--muted)">尚未偵測到施行細則、實施條例或依本法發布的公告。</p>
+    {% endif %}
+    <p style="margin-top:12px;font-size:12.5px;color:var(--muted)">
+      下方逐條列出母法條文，並將引用該條的子法／公告條文附在其後。系統不會將兩者
+      合併改寫成單一條文——哪一項補充規定優先適用屬於法律判斷，逕行合併會產出
+      看似官方、實則無人發布的條文。請依標示的出處自行判讀。
+    </p>
+  </div>
+</div>
+
+{% if view.unanchored_supplements %}
+<div class="panel">
+  <div class="panel-hd"><h2>整體適用之補充規定</h2></div>
+  <div class="panel-bd">
+    <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px">
+      引用本法整體、未指向特定條文的規定。
+    </p>
+    {% for s in view.unanchored_supplements %}
+    <div class="supp">
+      <div class="supp-hd">
+        <a href="/documents/{{ s.external_id | urlencode }}"><strong>{{ s.document_title }}</strong></a>
+        <span class="tag">{{ s.node_key }}</span>
+        <span class="tag">{{ s.relation }}</span>
+        {% if s.issued_at %}<span class="tag">{{ s.issued_at | shortdate }}</span>{% endif %}
+      </div>
+      <div class="supp-bd">{{ s.text }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="panel">
+  <div class="panel-hd"><h2>條文與補充規定</h2></div>
+  <div class="panel-bd">
+    {% for a in view.articles %}
+    <div class="art">
+      <div class="art-hd">
+        <strong>{{ a.heading or a.node_key }}</strong>
+        {% if a.supplements %}<span class="badge">{{ a.supplements | length }} 項補充</span>{% endif %}
+      </div>
+      <div class="art-bd">{{ a.text }}</div>
+
+      {% for s in a.supplements %}
+      <div class="supp">
+        <div class="supp-hd">
+          <a href="/documents/{{ s.external_id | urlencode }}"><strong>{{ s.document_title }}</strong></a>
+          <span class="tag">{{ s.heading or s.node_key }}</span>
+          <span class="tag">{{ s.relation }}</span>
+          {% if s.issued_at %}<span class="tag">{{ s.issued_at | shortdate }}</span>{% endif %}
+        </div>
+        <div class="supp-bd">{{ s.text }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p style="color:var(--muted)">此法規尚無已解析的條文。</p>
+    {% endfor %}
+  </div>
+</div>
+
+<style>
+  .art { padding:16px 0; border-bottom:1px solid var(--line); }
+  .art:last-child { border-bottom:0; }
+  .art-hd { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .art-bd { white-space:pre-wrap; line-height:1.7; }
+  .supp {
+    margin:10px 0 0 20px; padding:10px 12px;
+    border-left:3px solid var(--accent, #6b8afd);
+    background:var(--panel-alt, rgba(127,127,127,.06));
+    border-radius:0 6px 6px 0;
+  }
+  .supp-hd { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:6px; font-size:13px; }
+  .supp-bd { white-space:pre-wrap; font-size:13.5px; line-height:1.65; color:var(--muted-strong, inherit); }
+</style>
+{% endblock %}

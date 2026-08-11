@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from taxwatch.corpus.store import make_classifier
@@ -15,6 +16,11 @@ from taxwatch.taxonomy import UNCLASSIFIED
 
 class TaxTypeNotFound(LookupError):
     """Raised when no monitored document belongs to the requested tax type."""
+
+
+# Freshness means "how recently was the law changed", not "how recently did the
+# crawler run" — order by the date the authority put on the document.
+_DATED_AT = func.coalesce(Snapshot.issued_at, Snapshot.fetched_at)
 
 
 def list_tax_types(session: Session, *, recent_days: int = 7) -> list[dict[str, Any]]:
@@ -43,14 +49,11 @@ def list_tax_types(session: Session, *, recent_days: int = 7) -> list[dict[str, 
         bucket["document_count"] += 1
 
         snapshots = (
-            session.query(Snapshot)
-            .filter_by(document_id=doc.id)
-            .order_by(Snapshot.fetched_at.desc())
-            .all()
+            session.query(Snapshot).filter_by(document_id=doc.id).order_by(_DATED_AT.desc()).all()
         )
         bucket["version_count"] += len(snapshots)
         if snapshots:
-            latest = snapshots[0].fetched_at
+            latest = snapshots[0].dated_at
             if bucket["last_updated"] is None or latest > bucket["last_updated"]:
                 bucket["last_updated"] = latest
 
@@ -106,14 +109,11 @@ def get_summary(
         countries.add(source.country)
 
         snapshots = (
-            session.query(Snapshot)
-            .filter_by(document_id=doc.id)
-            .order_by(Snapshot.fetched_at.desc())
-            .all()
+            session.query(Snapshot).filter_by(document_id=doc.id).order_by(_DATED_AT.desc()).all()
         )
         latest = snapshots[0] if snapshots else None
-        if latest and (latest_overall is None or latest.fetched_at > latest_overall):
-            latest_overall = latest.fetched_at
+        if latest and (latest_overall is None or latest.dated_at > latest_overall):
+            latest_overall = latest.dated_at
 
         documents.append(
             {
@@ -129,8 +129,10 @@ def get_summary(
                     if latest
                     else 0
                 ),
-                "first_seen": snapshots[-1].fetched_at.isoformat() if snapshots else None,
-                "last_updated": latest.fetched_at.isoformat() if latest else None,
+                "issued_at": doc.issued_at.isoformat() if doc.issued_at else None,
+                "first_seen": snapshots[-1].dated_at.isoformat() if snapshots else None,
+                "last_updated": latest.dated_at.isoformat() if latest else None,
+                "official_date": bool(latest and latest.has_official_date),
             }
         )
 

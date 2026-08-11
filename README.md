@@ -71,6 +71,11 @@ Connectors ─▶ Normalizers ─▶ Snapshot ─▶ Diff ─▶ Legal Graph ─
 
 兩者都寫入 `AUTHORITY_OF`（子 → 母）邊，因此影響擴散查詢從母法出發即可走到所有子法。
 
+公告與部門規章（`国家税务总局关于…的公告`、`税务人员税收业务违法行为处分规定`）
+的標題只講主題、不講母法，靠的是第 1 條的授權條款：「根据《消费税法》第四条的规定，
+现将…公告如下」。系統只掃描開頭數條的 `依据/根据` 子句並提升為文件級關聯——再往後的
+「根据……」是論述而非授權，一併採用會讓每部法都變成每則公告的母法。
+
 實作上有三個容易踩到的細節：
 
 - **中文數字**：中國法規條號一律寫「第一百三十三条」而非「第133条」，抽取與正規化
@@ -84,6 +89,25 @@ Connectors ─▶ Normalizers ─▶ Snapshot ─▶ Diff ─▶ Legal Graph ─
 以文號（`财税〔2026〕15号`、`国家税务总局公告2026年第5号`）作為規範性文件的穩定識別鍵，
 citation 抽取會同時建立母法引用與廢止關係。
 
+### 合併檢視
+
+`/documents/{id}/consolidated` 逐條列出母法條文，並把引用該條的子法／公告條文附在其後，
+回答「這條現在實際上怎麼適用」——版本歷史回答的是「這份文件改了什麼」，而稅務問題問的
+從來不是單一文件。
+
+系統**不會**把母法與子法合併改寫成單一條文。哪一項補充規定優先適用屬於法律判斷，
+逕行拼接會產出看似官方、實則無人發布的條文。補充規定一律標示出處並列，由讀者判讀。
+
+### 日期：發布日 vs 抓取日
+
+`snapshots.issued_at` 記錄發文機關標註的成文／發布日期，`fetched_at` 記錄抓取時間。
+時間軸、版本排序、「某日生效的版本」查詢一律走 `COALESCE(issued_at, fetched_at)` ——
+否則首次爬取會把數十年的法規全部壓在同一天，時間軸完全失去意義。API 與頁面都會標示
+`official_date`，明確區分哪些日期來自來源、哪些是退而求其次用抓取時間。
+
+> 本專案沒有 Alembic；`init_db()` 會在 `create_all` 之後補上模型新增的 nullable 欄位
+> （僅限新增可空欄位，其餘變更仍需真正的 migration）。舊資料庫可直接升級，不必重爬。
+
 ## Web Dashboard
 
 | 路徑 | 內容 |
@@ -93,6 +117,7 @@ citation 抽取會同時建立母法引用與廢止關係。
 | `/tax-types/{key}` | 單一稅種：相關法規（子母法）、異動與分析 |
 | `/documents` | 法規清單與版本數 |
 | `/documents/{id}` | 版本時間軸 + 任兩版本的條文並排比對 |
+| `/documents/{id}/consolidated` | 合併檢視：母法逐條 + 子法／公告補充規定 |
 | `/changes` | 異動清單，可依區間／轄區／嚴重度篩選 |
 | `/changes/{id}` | 條文對照、unified diff、LLM 深度分析與引用 |
 | `/runs` | 抓取健康度與失敗稽核 |
@@ -107,6 +132,7 @@ GET  /api/tax-types                          所有稅種狀態
 GET  /api/tax-types/{key}                    單一稅種摘要
 GET  /api/documents                          法規清單
 GET  /api/documents/{id}/history             版本時間軸
+GET  /api/documents/{id}/consolidated        母法條文 + 各條的子法補充
 GET  /api/documents/{id}/at/{date}           指定日期的版本
 GET  /api/documents/{id}/diff?from=&to=      任兩日期的條文級 diff
 GET  /api/changes                            異動清單
@@ -188,7 +214,7 @@ BRAVE_SEARCH_MAX_RESULTS=5
 ## 開發
 
 ```bash
-pytest              # 179 tests
+pytest              # 327 tests
 ruff check .
 ```
 

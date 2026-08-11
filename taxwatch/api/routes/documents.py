@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 
 from taxwatch.db import get_session
+from taxwatch.services import consolidated as consolidated_svc
 from taxwatch.services import documents as svc
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -36,6 +37,18 @@ def get_history(external_id: str) -> dict[str, Any]:
         raise HTTPException(404, f"Document not found: {external_id}") from None
     except svc.SnapshotNotFound:
         raise HTTPException(404, f"No snapshots for document: {external_id}") from None
+    finally:
+        session.close()
+
+
+@router.get("/{external_id}/consolidated")
+def get_consolidated(external_id: str) -> dict[str, Any]:
+    """The document's current articles, each with the provisions implementing it."""
+    session = get_session()
+    try:
+        return consolidated_svc.get_consolidated(session, external_id)
+    except svc.DocumentNotFound:
+        raise HTTPException(404, f"Document not found: {external_id}") from None
     finally:
         session.close()
 
