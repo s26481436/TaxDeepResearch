@@ -118,13 +118,33 @@ class Snapshot(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"))
     fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # When the issuing authority dated this version (成文/發布日期). Distinct from
+    # fetched_at: a first crawl pulls in decades of law at once, and ordering
+    # those by crawl time collapses the whole corpus onto today.
+    issued_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     content_hash: Mapped[str] = mapped_column(String(64))
     raw_path: Mapped[str] = mapped_column(Text, default="")
 
     document: Mapped[Document] = relationship(back_populates="snapshots")
     provisions: Mapped[list[ProvisionNode]] = relationship(back_populates="snapshot")
 
-    __table_args__ = (Index("ix_snapshot_doc_fetched", "document_id", "fetched_at"),)
+    __table_args__ = (
+        Index("ix_snapshot_doc_fetched", "document_id", "fetched_at"),
+        Index("ix_snapshot_doc_issued", "document_id", "issued_at"),
+    )
+
+    @property
+    def dated_at(self) -> datetime:
+        """The date this version belongs at on a timeline.
+
+        Falls back to the crawl time for sources that publish no date at all —
+        wrong, but at least monotonic, and flagged by `has_official_date`.
+        """
+        return self.issued_at or self.fetched_at
+
+    @property
+    def has_official_date(self) -> bool:
+        return self.issued_at is not None
 
 
 class ProvisionNode(Base):
@@ -244,6 +264,112 @@ class CorpusDocument(Base):
     @property
     def is_repealed(self) -> bool:
         return self.aging in ("全文废止", "全文失效")
+
+
+# ---------- Filing requirements (申報規範) ----------
+
+
+class RequirementStatus(enum.StrEnum):
+    DRAFT = "draft"  # LLM 剛抽取，未經人工確認
+    REVIEWED = "reviewed"  # 人工確認過
+    STALE = "stale"  # 所引用的條文已異動，待重新覆核
+
+
+class FieldSource(enum.StrEnum):
+    LLM = "llm"
+    MANUAL = "manual"
+    IMPORT = "import"
+
+
+class TaxRequirement(Base):
+    """One row of the 申報規範 matrix: what a filer must do in one situation.
+
+    Identity is (tax type, scenario, taxpayer role) — 增值稅 alone is not
+    actionable, because a 小規模納稅人 selling services faces a different rate,
+    base and deadline than a 一般納稅人 selling goods.
+    """
+
+    __tablename__ = "tax_requirements"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    country: Mapped[str] = mapped_column(String(10))
+    tax_key: Mapped[str] = mapped_column(String(50))
+    scenario: Mapped[str] = mapped_column(Text)
+    taxpayer_role: Mapped[str] = mapped_column(Text, default="")
+
+    status: Mapped[RequirementStatus] = mapped_column(
+        Enum(RequirementStatus), default=RequirementStatus.DRAFT
+    )
+    # The law version this was extracted from, so a reviewer can tell whether
+    # they are looking at guidance built on current text.
+    source_document_id: Mapped[int | None] = mapped_column(
+        ForeignKey("documents.id"), nullable=True
+    )
+    model: Mapped[str] = mapped_column(String(200), default="")
+    prompt_version: Mapped[str] = mapped_column(String(32), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    fields: Mapped[list[RequirementField]] = relationship(
+        back_populates="requirement",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "country",
+            "tax_key",
+            "scenario",
+            "taxpayer_role",
+            name="uq_requirement_identity",
+        ),
+    )
+
+
+class RequirementField(Base):
+    """One cell of the matrix, with its own citations and review state.
+
+    Stored per field rather than as columns on the requirement because staleness
+    is per field: a rate change invalidates the rate and the formula, but says
+    nothing about the filing deadline. Flagging the whole row would make every
+    amendment force a full re-review, which is how a review process gets ignored.
+    """
+
+    __tablename__ = "requirement_fields"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    requirement_id: Mapped[int] = mapped_column(ForeignKey("tax_requirements.id"))
+    field_key: Mapped[str] = mapped_column(String(50))
+    value: Mapped[str] = mapped_column(Text, default="")
+
+    # [{"node_key": "增值税法#32", "title": "...", "url": "...", "quote": "..."}]
+    citations: Mapped[list] = mapped_column(JSON, default=list)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    source: Mapped[FieldSource] = mapped_column(Enum(FieldSource), default=FieldSource.LLM)
+
+    needs_review: Mapped[bool] = mapped_column(default=False)
+    review_reason: Mapped[str] = mapped_column(Text, default="")
+    # The change that invalidated this cell, so the UI can link to the diff.
+    stale_change_id: Mapped[int | None] = mapped_column(ForeignKey("changes.id"), nullable=True)
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    requirement: Mapped[TaxRequirement] = relationship(back_populates="fields")
+
+    __table_args__ = (
+        UniqueConstraint("requirement_id", "field_key", name="uq_field_per_requirement"),
+        Index("ix_field_review", "needs_review"),
+    )
+
+    @property
+    def cited_node_keys(self) -> list[str]:
+        return [c.get("node_key", "") for c in self.citations if c.get("node_key")]
 
 
 # ---------- Analysis ----------

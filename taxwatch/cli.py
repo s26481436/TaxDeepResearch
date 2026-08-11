@@ -98,6 +98,14 @@ def graph_show(
             typer.echo(f"Entity not found: {entity}")
             raise typer.Exit(1)
         typer.echo(f"\n=== {ctx['entity'].canonical_title} ({ctx['entity'].entity_key}) ===\n")
+        if ctx["parent_documents"]:
+            typer.echo("母法 (子母法層級):")
+            for ent in ctx["parent_documents"]:
+                typer.echo(f"  ⇧ {ent.canonical_title} ({ent.entity_key})")
+        if ctx["child_documents"]:
+            typer.echo("子法 (施行細則/實施條例):")
+            for ent in ctx["child_documents"]:
+                typer.echo(f"  ⇩ {ent.canonical_title} ({ent.entity_key})")
         if ctx["parent_laws"]:
             typer.echo("母法:")
             for rel, ent in ctx["parent_laws"]:
@@ -172,6 +180,114 @@ def import_corpus(
         f"Imported {stats['stored']:,} documents into corpus '{corpus_key}' "
         f"({stats['with_document_number']:,} with a 文號)"
     )
+
+
+@app.command()
+def extract_requirements(
+    document: str = typer.Argument(..., help="法規的 external_id 或標題"),
+    country: str = typer.Option("CN", help="轄區代碼"),
+    tax_key: str = typer.Option("", help="稅種鍵，留空則從標題推斷"),
+    dry_run: bool = typer.Option(False, help="只顯示會抽出什麼，不寫入資料庫"),
+):
+    """從法規條文（含子法與公告）抽取申報規範。"""
+    from taxwatch.db import get_session
+    from taxwatch.db import init_db as _init_db
+    from taxwatch.requirements.extract import NoSourceDocument, extract_for_document
+    from taxwatch.services.documents import DocumentNotFound
+
+    _init_db()
+    session = get_session()
+    try:
+        stats = extract_for_document(
+            session,
+            document,
+            country=country,
+            tax_key=tax_key or None,
+            dry_run=dry_run,
+        )
+    except (DocumentNotFound, NoSourceDocument) as exc:
+        typer.echo(f"無法抽取：{exc}")
+        raise typer.Exit(1) from None
+    finally:
+        session.close()
+
+    typer.echo(
+        f"\n稅種 {stats['tax_key']} — 依據《{stats['source_document']}》"
+        f"（{stats['provisions_supplied']} 條）"
+    )
+    typer.echo(f"抽出 {stats['requirements']} 個課稅情境")
+    if stats["dropped_citations"]:
+        # The model naming provisions that were never supplied is the failure
+        # mode worth shouting about — it means the guidance is partly invented.
+        typer.echo(f"⚠ 捨棄 {stats['dropped_citations']} 筆指向不存在條文的引用")
+    if stats["uncited_fields"]:
+        typer.echo(f"⚠ {stats['uncited_fields']} 個欄位無條文依據，已標記待覆核")
+    for item in stats["unresolved"]:
+        typer.echo(f"  · 待人工補充：{item}")
+    if dry_run:
+        for row in stats.get("preview", []):
+            typer.echo(f"  - {row['scenario']} / {row['taxpayer_role'] or '（未分身分）'}")
+
+
+@app.command()
+def import_requirements(
+    path: str = typer.Argument(..., help="申報規範試算表（.xlsx）"),
+    country: str = typer.Option("CN", help="轄區代碼"),
+    sheet: str = typer.Option("", help="工作表名稱，留空取第一張"),
+):
+    """匯入財務彙整的申報規範試算表。"""
+    from taxwatch.db import get_session
+    from taxwatch.db import init_db as _init_db
+    from taxwatch.requirements.importer import MissingDependency, import_workbook
+
+    _init_db()
+    session = get_session()
+    try:
+        stats = import_workbook(
+            session,
+            path,
+            country=country,
+            sheet=sheet or 0,
+        )
+    except MissingDependency as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(1) from None
+    except ValueError as exc:
+        typer.echo(f"無法匯入：{exc}")
+        raise typer.Exit(1) from None
+    finally:
+        session.close()
+
+    typer.echo(f"匯入 {stats['imported']} 列（略過 {stats['skipped']} 列）")
+    typer.echo(f"對應到的欄位：{', '.join(stats['columns_mapped'])}")
+    typer.echo("匯入內容尚未對應條文，已全數標記待覆核。")
+
+
+@app.command()
+def review_queue(
+    tax_key: str = typer.Option("", help="只看單一稅種"),
+):
+    """列出待覆核的申報規範欄位。"""
+    from taxwatch.db import get_session
+    from taxwatch.db import init_db as _init_db
+    from taxwatch.services.requirements import review_summary
+
+    _init_db()
+    session = get_session()
+    try:
+        summary = review_summary(session, tax_key=tax_key or None)
+    finally:
+        session.close()
+
+    if not summary["count"]:
+        typer.echo("沒有待覆核項目。")
+        return
+
+    typer.echo(f"\n{summary['count']} 個欄位待覆核\n")
+    for item in summary["items"]:
+        role = f" / {item['taxpayer_role']}" if item["taxpayer_role"] else ""
+        typer.echo(f"[{item['tax_name']}] {item['scenario']}{role}")
+        typer.echo(f"  {item['field_label']}: {item['reason']}")
 
 
 @app.command()

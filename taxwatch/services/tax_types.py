@@ -5,15 +5,22 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from taxwatch.corpus.store import make_classifier
+from taxwatch.graph.hierarchy import build_forest, entity_key_for_title, flatten_forest
 from taxwatch.models import Analysis, Change, Document, ProvisionNode, Snapshot, Source
 from taxwatch.taxonomy import UNCLASSIFIED
 
 
 class TaxTypeNotFound(LookupError):
     """Raised when no monitored document belongs to the requested tax type."""
+
+
+# Freshness means "how recently was the law changed", not "how recently did the
+# crawler run" — order by the date the authority put on the document.
+_DATED_AT = func.coalesce(Snapshot.issued_at, Snapshot.fetched_at)
 
 
 def list_tax_types(session: Session, *, recent_days: int = 7) -> list[dict[str, Any]]:
@@ -42,14 +49,11 @@ def list_tax_types(session: Session, *, recent_days: int = 7) -> list[dict[str, 
         bucket["document_count"] += 1
 
         snapshots = (
-            session.query(Snapshot)
-            .filter_by(document_id=doc.id)
-            .order_by(Snapshot.fetched_at.desc())
-            .all()
+            session.query(Snapshot).filter_by(document_id=doc.id).order_by(_DATED_AT.desc()).all()
         )
         bucket["version_count"] += len(snapshots)
         if snapshots:
-            latest = snapshots[0].fetched_at
+            latest = snapshots[0].dated_at
             if bucket["last_updated"] is None or latest > bucket["last_updated"]:
                 bucket["last_updated"] = latest
 
@@ -105,14 +109,11 @@ def get_summary(
         countries.add(source.country)
 
         snapshots = (
-            session.query(Snapshot)
-            .filter_by(document_id=doc.id)
-            .order_by(Snapshot.fetched_at.desc())
-            .all()
+            session.query(Snapshot).filter_by(document_id=doc.id).order_by(_DATED_AT.desc()).all()
         )
         latest = snapshots[0] if snapshots else None
-        if latest and (latest_overall is None or latest.fetched_at > latest_overall):
-            latest_overall = latest.fetched_at
+        if latest and (latest_overall is None or latest.dated_at > latest_overall):
+            latest_overall = latest.dated_at
 
         documents.append(
             {
@@ -128,8 +129,10 @@ def get_summary(
                     if latest
                     else 0
                 ),
-                "first_seen": snapshots[-1].fetched_at.isoformat() if snapshots else None,
-                "last_updated": latest.fetched_at.isoformat() if latest else None,
+                "issued_at": doc.issued_at.isoformat() if doc.issued_at else None,
+                "first_seen": snapshots[-1].dated_at.isoformat() if snapshots else None,
+                "last_updated": latest.dated_at.isoformat() if latest else None,
+                "official_date": bool(latest and latest.has_official_date),
             }
         )
 
@@ -165,6 +168,10 @@ def get_summary(
     changes.sort(key=lambda c: c["detected_at"], reverse=True)
     documents.sort(key=lambda d: d["last_updated"] or "", reverse=True)
 
+    # An implementing regulation is its parent statute's operative detail, not a
+    # peer sitting next to it — present them as one subtree.
+    forest = build_forest(documents, key_of=lambda d: entity_key_for_title(d["title"]))
+
     return {
         "key": tax_key,
         "name": tax_name or UNCLASSIFIED.name_zh,
@@ -172,6 +179,7 @@ def get_summary(
         "last_updated": latest_overall.isoformat() if latest_overall else None,
         "statistics": {
             "document_count": len(documents),
+            "root_document_count": len(forest),
             "version_count": sum(d["version_count"] for d in documents),
             "change_count": len(changes),
             "analysed_count": len(confidence_values),
@@ -182,6 +190,7 @@ def get_summary(
             ),
         },
         "documents": documents,
+        "document_tree": flatten_forest(forest),
         "changes": changes,
     }
 

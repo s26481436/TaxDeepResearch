@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from taxwatch.corpus.store import make_classifier
@@ -32,7 +33,9 @@ class SnapshotNotFound(LookupError):
 class VersionEntry:
     version: str
     snapshot_id: int
+    dated_at: datetime
     fetched_at: datetime
+    has_official_date: bool
     content_hash: str
     provision_count: int
     changes: list[dict[str, Any]]
@@ -78,7 +81,10 @@ def list_documents(
                 "tax_key": tax_type.key,
                 "tax_name": tax_type.name_zh,
                 "version_count": len(snapshots),
-                "last_updated": latest.fetched_at.isoformat() if latest else None,
+                "issued_at": doc.issued_at.isoformat() if doc.issued_at else None,
+                "last_updated": latest.dated_at.isoformat() if latest else None,
+                "official_date": bool(latest and latest.has_official_date),
+                "last_crawled": latest.fetched_at.isoformat() if latest else None,
             }
         )
 
@@ -102,7 +108,9 @@ def get_history(session: Session, external_id: str) -> dict[str, Any]:
         entry = VersionEntry(
             version=f"v{index}",
             snapshot_id=snapshot.id,
+            dated_at=snapshot.dated_at,
             fetched_at=snapshot.fetched_at,
+            has_official_date=snapshot.has_official_date,
             content_hash=snapshot.content_hash,
             provision_count=_provision_count(session, snapshot.id),
             changes=[
@@ -124,14 +132,21 @@ def get_history(session: Session, external_id: str) -> dict[str, Any]:
         "url": doc.url,
         "tax_key": tax_type.key,
         "tax_name": tax_type.name_zh,
-        "first_seen": snapshots[0].fetched_at.isoformat(),
-        "last_updated": snapshots[-1].fetched_at.isoformat(),
+        "issued_at": doc.issued_at.isoformat() if doc.issued_at else None,
+        "first_seen": snapshots[0].dated_at.isoformat(),
+        "last_updated": snapshots[-1].dated_at.isoformat(),
+        "first_crawled": snapshots[0].fetched_at.isoformat(),
+        "last_crawled": snapshots[-1].fetched_at.isoformat(),
         "version_count": len(snapshots),
         "timeline": [
             {
                 "version": e.version,
                 "snapshot_id": e.snapshot_id,
-                "date": e.fetched_at.isoformat(),
+                # The authority's own date where there is one; the crawl time
+                # only as a last resort, and `official_date` says which.
+                "date": e.dated_at.isoformat(),
+                "official_date": e.has_official_date,
+                "crawled_at": e.fetched_at.isoformat(),
                 "content_hash": e.content_hash,
                 "provision_count": e.provision_count,
                 "changes": e.changes,
@@ -151,7 +166,8 @@ def get_version_at(session: Session, external_id: str, at: date | datetime) -> d
         "external_id": doc.external_id,
         "title": doc.title,
         "requested_date": _as_datetime(at).isoformat(),
-        "snapshot_date": snapshot.fetched_at.isoformat(),
+        "snapshot_date": snapshot.dated_at.isoformat(),
+        "crawled_at": snapshot.fetched_at.isoformat(),
         "snapshot_id": snapshot.id,
         "provision_count": len(provisions),
         "provisions": [
@@ -182,8 +198,8 @@ def get_diff(
     return {
         "external_id": doc.external_id,
         "title": doc.title,
-        "from_date": from_snapshot.fetched_at.isoformat(),
-        "to_date": to_snapshot.fetched_at.isoformat(),
+        "from_date": from_snapshot.dated_at.isoformat(),
+        "to_date": to_snapshot.dated_at.isoformat(),
         "from_snapshot_id": from_snapshot.id,
         "to_snapshot_id": to_snapshot.id,
         "unchanged": from_snapshot.id == to_snapshot.id,
@@ -213,21 +229,27 @@ def get_diff(
 # ---------- internals ----------
 
 
+# Order the history the way a lawyer reads it — by the date on the document —
+# and only fall back to crawl time for sources that publish no date.
+_DATED_AT = func.coalesce(Snapshot.issued_at, Snapshot.fetched_at)
+
+
 def _snapshots(session: Session, document_id: int) -> list[Snapshot]:
     return (
         session.query(Snapshot)
         .filter_by(document_id=document_id)
-        .order_by(Snapshot.fetched_at.asc(), Snapshot.id.asc())
+        .order_by(_DATED_AT.asc(), Snapshot.id.asc())
         .all()
     )
 
 
 def _snapshot_at(session: Session, document_id: int, at: date | datetime) -> Snapshot:
+    """The version in force on a date — by issue date, not by when we saw it."""
     moment = _as_datetime(at)
     snapshot = (
         session.query(Snapshot)
-        .filter(Snapshot.document_id == document_id, Snapshot.fetched_at <= moment)
-        .order_by(Snapshot.fetched_at.desc(), Snapshot.id.desc())
+        .filter(Snapshot.document_id == document_id, _DATED_AT <= moment)
+        .order_by(_DATED_AT.desc(), Snapshot.id.desc())
         .first()
     )
     if snapshot is None:

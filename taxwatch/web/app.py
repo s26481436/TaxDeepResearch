@@ -18,8 +18,10 @@ from fastapi.templating import Jinja2Templates
 from taxwatch.api.routes import ALL_ROUTERS
 from taxwatch.config import load_sources
 from taxwatch.db import get_session
+from taxwatch.services import consolidated as consolidated_svc
 from taxwatch.services import dashboard as dashboard_svc
 from taxwatch.services import documents as documents_svc
+from taxwatch.services import requirements as requirements_svc
 from taxwatch.services import tax_types as tax_types_svc
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -152,6 +154,65 @@ def document_history_page(
     except (documents_svc.DocumentNotFound, documents_svc.SnapshotNotFound) as exc:
         return _page(
             request, "not_found.html", active="documents", message=f"找不到法規版本：{exc}"
+        )
+    finally:
+        session.close()
+
+
+@app.get("/documents/{external_id}/consolidated", response_class=HTMLResponse)
+def document_consolidated_page(request: Request, external_id: str) -> HTMLResponse:
+    """The statute as it currently reads, with implementing provisions inline."""
+    session = get_session()
+    try:
+        return _page(
+            request,
+            "document_consolidated.html",
+            active="documents",
+            view=consolidated_svc.get_consolidated(session, external_id),
+        )
+    except documents_svc.DocumentNotFound as exc:
+        return _page(request, "not_found.html", active="documents", message=f"找不到法規：{exc}")
+    finally:
+        session.close()
+
+
+@app.get("/requirements", response_class=HTMLResponse)
+def requirements_page(
+    request: Request,
+    tax_key: str | None = None,
+    country: str | None = None,
+) -> HTMLResponse:
+    """The 申報規範 matrix — what a filer must do, per tax type and scenario."""
+    session = get_session()
+    try:
+        return _page(
+            request,
+            "requirements.html",
+            active="requirements",
+            requirements=requirements_svc.list_requirements(
+                session, country=country, tax_key=tax_key
+            ),
+            review=requirements_svc.review_summary(session, tax_key=tax_key),
+            tax_key=tax_key,
+            country=country,
+        )
+    finally:
+        session.close()
+
+
+@app.get("/requirements/{requirement_id}", response_class=HTMLResponse)
+def requirement_detail_page(request: Request, requirement_id: int) -> HTMLResponse:
+    session = get_session()
+    try:
+        return _page(
+            request,
+            "requirement_detail.html",
+            active="requirements",
+            req=requirements_svc.get_requirement(session, requirement_id),
+        )
+    except requirements_svc.RequirementNotFound as exc:
+        return _page(
+            request, "not_found.html", active="requirements", message=f"找不到申報規範：{exc}"
         )
     finally:
         session.close()

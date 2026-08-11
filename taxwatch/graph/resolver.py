@@ -32,11 +32,20 @@ def resolve_citation(session: Session, citation: Citation) -> LegalEntity:
     return resolve_entity(session, citation.entity_key, citation.raw_text)
 
 
+# Stripped only as a leading prefix — 中华人民共和国 appearing mid-title is part
+# of the name proper (e.g. 中华人民共和国政府和新加坡共和国政府...协定).
+_PRC_PREFIX_RE = re.compile(r"^中华人民共和国(?=.)")
+
+
 def normalize_entity_key(key: str) -> str:
     key = re.sub(r"\s+", "", key)
     key = key.replace("臺", "台")
     key = key.replace("　", "")
-    return key
+    key = key.strip("《》")
+    # The official long form and the working name are the same law. Left apart,
+    # 中华人民共和国增值税法实施条例 never finds its parent 增值税法, because the
+    # parent derived from its title carries a prefix the citing text omits.
+    return _PRC_PREFIX_RE.sub("", key, count=1)
 
 
 def _infer_type(key: str) -> DocType:

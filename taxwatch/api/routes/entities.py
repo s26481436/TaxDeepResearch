@@ -35,6 +35,13 @@ def entity_context(entity_key: str) -> dict[str, Any]:
             "siblings": [
                 {"key": e.entity_key, "title": e.canonical_title} for e in ctx["siblings"]
             ],
+            # Document-level 子母法, as opposed to the article-level edges above.
+            "parent_documents": [
+                {"key": e.entity_key, "title": e.canonical_title} for e in ctx["parent_documents"]
+            ],
+            "child_documents": [
+                {"key": e.entity_key, "title": e.canonical_title} for e in ctx["child_documents"]
+            ],
         }
     finally:
         session.close()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -13,6 +14,11 @@ from taxwatch.connectors.registry import get_connector
 from taxwatch.diff.classify import classify_severity
 from taxwatch.diff.engine import diff_provisions
 from taxwatch.graph.citation import extract_citations
+from taxwatch.graph.hierarchy import (
+    derive_parent_key,
+    promote_declared_authority,
+    register_document_hierarchy,
+)
 from taxwatch.graph.relations import store_citations
 from taxwatch.models import (
     Change,
@@ -25,6 +31,7 @@ from taxwatch.models import (
 )
 from taxwatch.normalize.base import ProvisionData
 from taxwatch.normalize.registry import get_normalizer
+from taxwatch.requirements.staleness import flag_stale_fields
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +119,7 @@ def execute_pipeline(
         snapshot = Snapshot(
             document_id=doc.id,
             content_hash=content_hash,
+            issued_at=_issued_at(ref, normalized),
             raw_path=f"data/raw/{source_key}/{ref.external_id}",
         )
         session.add(snapshot)
@@ -151,13 +159,33 @@ def execute_pipeline(
             continue
 
         # Stage: graph
+        doc_key = _document_entity_key(normalized, doc)
+        register_document_hierarchy(session, doc, doc_key)
+        # 公告/部门规章 name their parent in the 依据 clause rather than in their
+        # title, so the title-derived link above finds nothing for them.
+        promote_declared_authority(session, doc, doc_key, normalized.provisions)
+        parent_key = derive_parent_key(doc_key)
+
         for prov in normalized.provisions:
-            citations = extract_citations(prov.text)
+            # Deictic references (本法第14條) only resolve if we tell the
+            # extractor which law this document is a child of.
+            citations = extract_citations(
+                prov.text,
+                parent_key=parent_key,
+                self_key=doc_key,
+            )
             if citations:
                 store_citations(session, prov.node_key, citations)
 
         if stop_after == "graph":
             continue
+
+    # Guidance built on a provision that just moved is now suspect. Flag the
+    # affected cells before analysis, so a run that dies mid-analysis still
+    # leaves the compliance matrix honest about what it no longer knows.
+    if all_changes:
+        stale = flag_stale_fields(session, all_changes)
+        stats["stages"]["requirements"] = {"fields_flagged": len(stale)}
 
     session.commit()
 
@@ -223,7 +251,46 @@ def _ensure_document(session: Session, source: Source, ref: Any) -> Document:
         )
         session.add(doc)
         session.flush()
+        return doc
+
+    # An amended document is re-issued under a new date and sometimes a revised
+    # title; leaving the first crawl's values in place freezes it at whatever we
+    # happened to see first.
+    if ref.title and ref.title != doc.title:
+        doc.title = ref.title
+    if ref.url and ref.url != doc.url:
+        doc.url = ref.url
+    if ref.issued_at and ref.issued_at != doc.issued_at:
+        doc.issued_at = ref.issued_at
     return doc
+
+
+def _issued_at(ref: Any, normalized: Any) -> Any:
+    """The date the authority put on this version, if it gave one."""
+    if getattr(ref, "issued_at", None):
+        return ref.issued_at
+    meta = getattr(normalized, "metadata", None) or {}
+    for key in ("issued_at", "written_date", "pub_date"):
+        value = meta.get(key)
+        if isinstance(value, datetime):
+            return value
+    return None
+
+
+def _document_entity_key(normalized: Any, doc: Document) -> str:
+    """The graph key standing for the document as a whole.
+
+    Taken from the provisions' own keys rather than the title, so the document
+    node and its article nodes share a stem — otherwise 增值税法实施条例 and
+    增值税法实施条例#3 would be unrelated entities.
+    """
+    from taxwatch.graph.resolver import normalize_entity_key
+
+    for prov in normalized.provisions:
+        stem = prov.node_key.split("#", 1)[0].strip()
+        if stem:
+            return normalize_entity_key(stem)
+    return normalize_entity_key(normalized.title or doc.title or doc.external_id)
 
 
 def _save_raw(raw: Any, source_key: str):
