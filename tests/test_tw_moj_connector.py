@@ -6,6 +6,7 @@ Validated against the live API on 2026-08-11:
 - ArticleType "A" = actual articles, "C" = chapter headings
 - LawModifiedDate format: YYYYMMDD (Gregorian, not ROC)
 """
+
 from __future__ import annotations
 
 import io
@@ -20,12 +21,11 @@ from taxwatch.connectors.base import DocumentRef, RawDocument
 from taxwatch.connectors.tw_moj_law import (
     TwMojLawConnector,
     _extract_pcode,
+    _parse_roc_date,
     _parse_yyyymmdd,
     _parse_zip_response,
-    _parse_roc_date,
 )
 from taxwatch.normalize.tw_law_json import TwLawJsonNormalizer
-
 
 # ---------------------------------------------------------------------------
 # Fixtures — realistic mock data matching live API structure
@@ -47,10 +47,22 @@ MOCK_LAW = {
     "LawForeword": "",
     "LawArticles": [
         {"ArticleType": "C", "ArticleNo": "", "ArticleContent": "第 一 章 總則"},
-        {"ArticleType": "A", "ArticleNo": "第 1 條", "ArticleContent": "所得稅分為綜合所得稅及營利事業所得稅。"},
-        {"ArticleType": "A", "ArticleNo": "第 2 條", "ArticleContent": "凡有中華民國來源所得之個人，應就其中華民國來源之所得，依本法規定，課徵綜合所得稅。"},
+        {
+            "ArticleType": "A",
+            "ArticleNo": "第 1 條",
+            "ArticleContent": "所得稅分為綜合所得稅及營利事業所得稅。",
+        },  # noqa: E501
+        {
+            "ArticleType": "A",
+            "ArticleNo": "第 2 條",
+            "ArticleContent": "凡有中華民國來源所得之個人，應就其中華民國來源之所得，依本法規定，課徵綜合所得稅。",  # noqa: E501
+        },
         {"ArticleType": "C", "ArticleNo": "", "ArticleContent": "第 二 章 課稅範圍"},
-        {"ArticleType": "A", "ArticleNo": "第 3 條", "ArticleContent": "凡在中華民國境內經營之營利事業，應依本法規定，課徵營利事業所得稅。"},
+        {
+            "ArticleType": "A",
+            "ArticleNo": "第 3 條",
+            "ArticleContent": "凡在中華民國境內經營之營利事業，應依本法規定，課徵營利事業所得稅。",
+        },  # noqa: E501
     ],
 }
 
@@ -86,6 +98,7 @@ def connector():
 # _parse_zip_response
 # ---------------------------------------------------------------------------
 
+
 class TestParseZipResponse:
     def test_extracts_laws_list(self):
         zipped = _make_zip([MOCK_LAW])
@@ -109,14 +122,18 @@ class TestParseZipResponse:
 # _parse_yyyymmdd
 # ---------------------------------------------------------------------------
 
+
 class TestParseYyyymmdd:
-    @pytest.mark.parametrize("raw,expected", [
-        ("20251226", datetime(2025, 12, 26)),
-        ("20210120", datetime(2021, 1, 20)),
-        ("", None),
-        ("invalid", None),
-        ("00000000", None),
-    ])
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("20251226", datetime(2025, 12, 26)),
+            ("20210120", datetime(2021, 1, 20)),
+            ("", None),
+            ("invalid", None),
+            ("00000000", None),
+        ],
+    )
     def test_variants(self, raw, expected):
         assert _parse_yyyymmdd(raw) == expected
 
@@ -125,14 +142,18 @@ class TestParseYyyymmdd:
 # _parse_roc_date (backward-compat helper)
 # ---------------------------------------------------------------------------
 
+
 class TestParseRocDate:
-    @pytest.mark.parametrize("raw,expected", [
-        ("民國 113 年 01 月 03 日", datetime(2024, 1, 3)),
-        ("民國113年1月3日", datetime(2024, 1, 3)),
-        ("113年01月03日", datetime(2024, 1, 3)),
-        ("", None),
-        ("invalid date", None),
-    ])
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("民國 113 年 01 月 03 日", datetime(2024, 1, 3)),
+            ("民國113年1月3日", datetime(2024, 1, 3)),
+            ("113年01月03日", datetime(2024, 1, 3)),
+            ("", None),
+            ("invalid date", None),
+        ],
+    )
     def test_variants(self, raw, expected):
         assert _parse_roc_date(raw) == expected
 
@@ -140,6 +161,7 @@ class TestParseRocDate:
 # ---------------------------------------------------------------------------
 # _extract_pcode
 # ---------------------------------------------------------------------------
+
 
 class TestExtractPcode:
     def test_extracts_from_url(self):
@@ -154,17 +176,20 @@ class TestExtractPcode:
 # TwMojLawConnector.discover()
 # ---------------------------------------------------------------------------
 
+
 class TestDiscover:
     def test_returns_matching_pcodes_only(self, connector):
         # Law batch has G0340003; Order batch has G0340051
         law_zip = _make_zip([MOCK_LAW])
         order_zip = _make_zip(
-            [{
-                **MOCK_LAW,
-                "LawName": "營利事業所得稅查核準則",
-                "LawURL": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=G0340051",
-                "LawLevel": "命令",
-            }],
+            [
+                {
+                    **MOCK_LAW,
+                    "LawName": "營利事業所得稅查核準則",
+                    "LawURL": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=G0340051",
+                    "LawLevel": "命令",
+                }
+            ],
             filename="ChOrder.json",
         )
 
@@ -208,7 +233,10 @@ class TestDiscover:
 
     def test_skips_nonmatching_pcodes(self, connector):
         """Laws not in law_categories must not appear in results."""
-        other_law = {**MOCK_LAW, "LawURL": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=A0000001"}
+        other_law = {
+            **MOCK_LAW,
+            "LawURL": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=A0000001",
+        }
         law_zip = _make_zip([MOCK_LAW, other_law])
         with patch("taxwatch.connectors.tw_moj_law.fetch_with_retry") as mock_fetch:
             mock_fetch.side_effect = [
@@ -240,6 +268,7 @@ class TestDiscover:
 # TwMojLawConnector.fetch()
 # ---------------------------------------------------------------------------
 
+
 class TestFetch:
     def test_uses_embedded_payload_without_http(self, connector):
         ref = DocumentRef(
@@ -260,6 +289,7 @@ class TestFetch:
 # ---------------------------------------------------------------------------
 # TwLawJsonNormalizer
 # ---------------------------------------------------------------------------
+
 
 class TestTwLawJsonNormalizer:
     def test_extracts_only_article_type_a(self):
@@ -327,6 +357,7 @@ class TestTwLawJsonNormalizer:
 # ---------------------------------------------------------------------------
 # Pcode correctness (regression guard against future mis-configuration)
 # ---------------------------------------------------------------------------
+
 
 class TestPcodeList:
     """Verified pcodes from live API on 2026-08-11."""

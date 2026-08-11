@@ -18,9 +18,9 @@ Key parts of Title 26 (IRS):
   Part 31  — Employment Taxes
   Part 301 — Procedure and Administration
 """
+
 from __future__ import annotations
 
-import re
 from datetime import datetime
 
 from taxwatch.connectors.base import Connector, DocumentRef, RawDocument
@@ -64,7 +64,8 @@ class UsEcfrConnector(Connector):
             doc_id = f"26-CFR-{part}"
             title = f"26 CFR Part {part}"
 
-            if doc_id not in seen or (amended_on and (seen[doc_id].issued_at or datetime.min) < amended_on):
+            existing_date = seen[doc_id].issued_at if doc_id in seen else None
+            if doc_id not in seen or (amended_on and (existing_date or datetime.min) < amended_on):
                 seen[doc_id] = DocumentRef(
                     external_id=doc_id,
                     title=title,

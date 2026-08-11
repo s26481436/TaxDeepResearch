@@ -1,4 +1,5 @@
 """Run LLM analysis on detected changes with legal graph context."""
+
 from __future__ import annotations
 
 import logging
@@ -60,7 +61,11 @@ def analyze_change(session: Session, change: Change) -> Analysis:
     corpus_hits = sum(1 for e in evidence if e.origin == CORPUS)
     logger.info(
         "Analyzed change %d: %s (confidence=%.2f, evidence=%d [%d corpus])",
-        change.id, change.node_key, result.confidence, len(evidence), corpus_hits,
+        change.id,
+        change.node_key,
+        result.confidence,
+        len(evidence),
+        corpus_hits,
     )
     return analysis
 

@@ -28,6 +28,7 @@ ArticleType:
   "A" = 實質條文
   "C" = 章節標題（ArticleNo 為空）
 """
+
 from __future__ import annotations
 
 import io
@@ -72,21 +73,25 @@ class TwMojLawConnector(Connector):
 
                 modified = _parse_yyyymmdd(law.get("LawModifiedDate", ""))
                 abandoned = bool(law.get("LawAbandonNote", "").strip())
-                refs.append(DocumentRef(
-                    external_id=pcode,
-                    title=law["LawName"],
-                    doc_type="statute",
-                    url=law.get("LawURL", f"https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode={pcode}"),
-                    issued_at=modified,
-                    metadata={
-                        "pcode": pcode,
-                        "abandoned": abandoned,
-                        "level": law.get("LawLevel", ""),
-                        "endpoint": endpoint,
-                        # Embed the full payload so fetch() doesn't need another HTTP call
-                        "law_payload": json.dumps(law, ensure_ascii=False),
-                    },
-                ))
+                refs.append(
+                    DocumentRef(
+                        external_id=pcode,
+                        title=law["LawName"],
+                        doc_type="statute",
+                        url=law.get(
+                            "LawURL", f"https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode={pcode}"
+                        ),
+                        issued_at=modified,
+                        metadata={
+                            "pcode": pcode,
+                            "abandoned": abandoned,
+                            "level": law.get("LawLevel", ""),
+                            "endpoint": endpoint,
+                            # Embed the full payload so fetch() doesn't need another HTTP call
+                            "law_payload": json.dumps(law, ensure_ascii=False),
+                        },
+                    )
+                )
 
         return refs
 
@@ -123,6 +128,7 @@ class TwMojLawConnector(Connector):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _parse_zip_response(content: bytes) -> list[dict]:
     """Extract the JSON array from the ZIP blob returned by the batch API."""

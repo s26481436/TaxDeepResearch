@@ -1,4 +1,5 @@
 """Legal relation storage and impact-spread queries."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -99,10 +100,14 @@ def get_entity_context(session: Session, entity_key: str) -> dict[str, Any] | No
         session.query(LegalRelation, LegalEntity)
         .join(LegalEntity, LegalRelation.to_entity_id == LegalEntity.id)
         .filter(LegalRelation.from_entity_id == entity.id)
-        .filter(LegalRelation.relation_type.in_([
-            RelationType.INTERPRETS,
-            RelationType.AUTHORITY_OF,
-        ]))
+        .filter(
+            LegalRelation.relation_type.in_(
+                [
+                    RelationType.INTERPRETS,
+                    RelationType.AUTHORITY_OF,
+                ]
+            )
+        )
         .all()
     )
 
@@ -110,10 +115,14 @@ def get_entity_context(session: Session, entity_key: str) -> dict[str, Any] | No
         session.query(LegalRelation, LegalEntity)
         .join(LegalEntity, LegalRelation.from_entity_id == LegalEntity.id)
         .filter(LegalRelation.to_entity_id == entity.id)
-        .filter(LegalRelation.relation_type.in_([
-            RelationType.INTERPRETS,
-            RelationType.AUTHORITY_OF,
-        ]))
+        .filter(
+            LegalRelation.relation_type.in_(
+                [
+                    RelationType.INTERPRETS,
+                    RelationType.AUTHORITY_OF,
+                ]
+            )
+        )
         .all()
     )
 

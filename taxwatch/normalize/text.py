@@ -1,4 +1,5 @@
 """Text normalization to reduce false-positive diffs from formatting noise."""
+
 from __future__ import annotations
 
 import re
@@ -18,9 +19,7 @@ def _normalize_unicode(text: str) -> str:
         "０１２３４５６７８９"
         "ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ"
         "ａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ",
-        "0123456789"
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        "abcdefghijklmnopqrstuvwxyz",
+        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
     )
     text = text.translate(_FULLWIDTH_MAP)
     return text
@@ -36,10 +35,16 @@ def _normalize_whitespace(text: str) -> str:
 
 def _normalize_punctuation(text: str) -> str:
     replacements = {
-        "‘": "'", "’": "'",
-        "“": '"', "”": '"',
-        "‐": "-", "‑": "-", "‒": "-",
-        "–": "-", "—": "-", "―": "-",
+        "‘": "'",
+        "’": "'",
+        "“": '"',
+        "”": '"',
+        "‐": "-",
+        "‑": "-",
+        "‒": "-",
+        "–": "-",
+        "—": "-",
+        "―": "-",
         "，": "，",
         "．": ".",
         "：": "：",

@@ -1,4 +1,5 @@
 """Smoke tests for the server-rendered dashboard and the JSON API."""
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -29,6 +30,7 @@ def client(session, seeded, monkeypatch):
 
 
 # ---------- pages ----------
+
 
 def test_dashboard_page(client):
     resp = client.get("/")
@@ -120,6 +122,7 @@ def test_health(client):
 
 
 # ---------- JSON API ----------
+
 
 def test_api_tax_types(client):
     body = client.get("/api/tax-types").json()

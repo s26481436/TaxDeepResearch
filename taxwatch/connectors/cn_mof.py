@@ -3,6 +3,7 @@
 Scrapes 财政部条法司 / 税政司 policy listings.
 Focus: enterprise/manufacturing tax regulations and notices.
 """
+
 from __future__ import annotations
 
 import re
@@ -26,23 +27,37 @@ class CnMofConnector(Connector):
         base = self._base_url()
         refs: list[DocumentRef] = []
 
-        list_paths = self.source_config.get("list_paths", [
-            "/gkml/szs/zhengcefabu/index.htm",  # 税政司政策发布
-            "/gkml/tfs/index.htm",                # 条法司
-        ])
+        list_paths = self.source_config.get(
+            "list_paths",
+            [
+                "/zhengwuxinxi/zhengcefabu/",  # 财政部政策发布（税政司文件 szs.mof.gov.cn）
+            ],
+        )
 
-        keywords = self.source_config.get("keywords", [
-            "企业所得税", "增值税", "印花税", "环境保护税", "资源税",
-            "城市维护建设税", "税收", "制造业", "小微企业",
-            "研发费用", "加计扣除",
-        ])
+        keywords = self.source_config.get(
+            "keywords",
+            [
+                "企业所得税",
+                "增值税",
+                "印花税",
+                "环境保护税",
+                "资源税",
+                "城市维护建设税",
+                "税收",
+                "制造业",
+                "小微企业",
+                "研发费用",
+                "加计扣除",
+            ],
+        )
 
         for path in list_paths:
+            list_url = f"{base}{path}"
             try:
-                resp = fetch_with_retry(client, f"{base}{path}")
+                resp = fetch_with_retry(client, list_url)
                 encoding = _detect_encoding(resp)
                 html = resp.content.decode(encoding, errors="replace")
-                page_refs = self._parse_list_page(html, base, keywords)
+                page_refs = self._parse_list_page(html, base, keywords, list_url=list_url)
                 refs.extend(page_refs)
             except Exception:
                 continue
@@ -50,7 +65,11 @@ class CnMofConnector(Connector):
         return refs
 
     def fetch(self, ref: DocumentRef) -> RawDocument:
-        client = create_client(timeout=60, headers={"Accept-Charset": "utf-8"})
+        referer = ref.metadata.get("list_url", self._base_url())
+        client = create_client(
+            timeout=60,
+            headers={"Accept-Charset": "utf-8", "Referer": referer},
+        )
         url = ref.url
         resp = fetch_with_retry(client, url)
         return RawDocument(
@@ -62,7 +81,11 @@ class CnMofConnector(Connector):
         )
 
     def _parse_list_page(
-        self, html: str, base_url: str, keywords: list[str],
+        self,
+        html: str,
+        base_url: str,
+        keywords: list[str],
+        list_url: str = "",
     ) -> list[DocumentRef]:
         soup = BeautifulSoup(html, "html.parser")
         refs: list[DocumentRef] = []
@@ -89,14 +112,19 @@ class CnMofConnector(Connector):
             parent = link.find_parent(["li", "tr", "div"])
             date = self._extract_date(parent) if parent else None
 
-            refs.append(DocumentRef(
-                external_id=doc_id,
-                title=title,
-                doc_type="announcement",
-                url=href,
-                issued_at=date,
-                metadata={"wenhao": doc_id if "号" in doc_id else ""},
-            ))
+            refs.append(
+                DocumentRef(
+                    external_id=doc_id,
+                    title=title,
+                    doc_type="announcement",
+                    url=href,
+                    issued_at=date,
+                    metadata={
+                        "wenhao": doc_id if "号" in doc_id else "",
+                        "list_url": list_url,
+                    },
+                )
+            )
 
         return refs
 

@@ -1,4 +1,5 @@
 """Main detection pipeline: discover → fetch → snapshot → diff → graph → analyze → report."""
+
 from __future__ import annotations
 
 import hashlib
@@ -89,6 +90,8 @@ def execute_pipeline(
         doc = _ensure_document(session, source, ref)
 
         raw = connector.fetch(ref)
+        if raw.metadata.get("skip"):
+            continue
         _save_raw(raw, source_key)
 
         normalized = normalizer.normalize(raw)
@@ -116,13 +119,15 @@ def execute_pipeline(
 
         for prov in normalized.provisions:
             text_hash = hashlib.sha256(prov.text.encode()).hexdigest()
-            session.add(ProvisionNode(
-                snapshot_id=snapshot.id,
-                node_key=prov.node_key,
-                heading=prov.heading,
-                text=prov.text,
-                text_hash=text_hash,
-            ))
+            session.add(
+                ProvisionNode(
+                    snapshot_id=snapshot.id,
+                    node_key=prov.node_key,
+                    heading=prov.heading,
+                    text=prov.text,
+                    text_hash=text_hash,
+                )
+            )
         session.flush()
         new_snapshots += 1
 
@@ -133,8 +138,12 @@ def execute_pipeline(
         if latest:
             old_provisions = _load_provisions(session, latest.id)
             changes = _run_diff(
-                session, doc, latest, snapshot,
-                old_provisions, normalized.provisions,
+                session,
+                doc,
+                latest,
+                snapshot,
+                old_provisions,
+                normalized.provisions,
             )
             all_changes.extend(changes)
 
@@ -197,9 +206,7 @@ def _ensure_source(session: Session, key: str, cfg: dict) -> Source:
 
 def _ensure_document(session: Session, source: Source, ref: Any) -> Document:
     doc = (
-        session.query(Document)
-        .filter_by(source_id=source.id, external_id=ref.external_id)
-        .first()
+        session.query(Document).filter_by(source_id=source.id, external_id=ref.external_id).first()
     )
     if not doc:
         doc = Document(
@@ -229,10 +236,7 @@ def _save_raw(raw: Any, source_key: str):
 
 def _load_provisions(session: Session, snapshot_id: int) -> list[ProvisionData]:
     nodes = session.query(ProvisionNode).filter_by(snapshot_id=snapshot_id).all()
-    return [
-        ProvisionData(node_key=n.node_key, heading=n.heading, text=n.text)
-        for n in nodes
-    ]
+    return [ProvisionData(node_key=n.node_key, heading=n.heading, text=n.text) for n in nodes]
 
 
 def _run_diff(

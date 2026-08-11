@@ -1,4 +1,5 @@
 """Tests for tax type classification."""
+
 from taxwatch.taxonomy import UNCLASSIFIED, by_key, classify
 
 

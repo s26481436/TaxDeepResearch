@@ -1,4 +1,5 @@
 """Shared HTML parsers for Taiwan government websites."""
+
 from __future__ import annotations
 
 import re
@@ -31,13 +32,15 @@ def parse_ruling_list(html: str, base_url: str) -> list[DocumentRef]:
         doc_id = _extract_doc_id(href) or title[:50]
         date_text = cells[0].get_text(strip=True) if cells else ""
 
-        refs.append(DocumentRef(
-            external_id=doc_id,
-            title=title,
-            doc_type="ruling",
-            url=href,
-            issued_at=_parse_date_text(date_text),
-        ))
+        refs.append(
+            DocumentRef(
+                external_id=doc_id,
+                title=title,
+                doc_type="ruling",
+                url=href,
+                issued_at=_parse_date_text(date_text),
+            )
+        )
 
     return refs
 
@@ -60,12 +63,14 @@ def parse_interpretation_list(html: str, base_url: str) -> list[DocumentRef]:
         match = re.search(r"(釋字第\s*\d+\s*號|憲判字第\s*\d+\s*號)", title)
         doc_id = match.group(1) if match else title[:50]
 
-        refs.append(DocumentRef(
-            external_id=doc_id,
-            title=title,
-            doc_type="interpretation",
-            url=href,
-        ))
+        refs.append(
+            DocumentRef(
+                external_id=doc_id,
+                title=title,
+                doc_type="interpretation",
+                url=href,
+            )
+        )
 
     return refs
 

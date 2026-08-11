@@ -28,10 +28,15 @@ def _load_builtins():
     from taxwatch.connectors.us_state_tax import UsStateTaxConnector
 
     for cls in [
-        TwMojLawConnector, TwMofRulingConnector,
-        TwConstitutionalConnector, UsFederalRegisterConnector,
-        CnChinataxConnector, CnMofConnector,
-        UsEcfrConnector, UsGovinfoConnector, UsStateTaxConnector,
+        TwMojLawConnector,
+        TwMofRulingConnector,
+        TwConstitutionalConnector,
+        UsFederalRegisterConnector,
+        CnChinataxConnector,
+        CnMofConnector,
+        UsEcfrConnector,
+        UsGovinfoConnector,
+        UsStateTaxConnector,
     ]:
         register(cls)
 

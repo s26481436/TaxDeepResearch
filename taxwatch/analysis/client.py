@@ -4,6 +4,7 @@ Handles the reality that local models (vLLM, Ollama, etc.) have varying
 support for json_schema / json_object response formats.
 Three-tier fallback: json_schema → json_object + prompt schema → raw + pydantic repair.
 """
+
 from __future__ import annotations
 
 import json
@@ -54,7 +55,7 @@ class LLMClient:
                 kwargs = self._build_format_kwargs(level, test_schema)
                 resp = self.client.chat.completions.create(
                     model=self.model,
-                    messages=[{"role": "user", "content": "Reply with JSON: {\"test\": \"ok\"}"}],
+                    messages=[{"role": "user", "content": 'Reply with JSON: {"test": "ok"}'}],
                     max_tokens=50,
                     **kwargs,
                 )

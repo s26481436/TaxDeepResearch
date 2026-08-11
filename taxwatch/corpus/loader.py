@@ -11,6 +11,7 @@ redistributed by TaxWatch. Check the source corpus's licence before using it
 for anything beyond internal analysis — the chinatax policy corpus is
 CC-BY-NC-4.0, i.e. non-commercial.
 """
+
 from __future__ import annotations
 
 import logging
@@ -75,8 +76,7 @@ def read_parquet(path: Path) -> Iterator[dict[str, Any]]:
         import pyarrow.parquet as pq
     except ImportError as exc:  # pragma: no cover - depends on optional extra
         raise RuntimeError(
-            "Reading a Parquet corpus needs pyarrow. Install with: "
-            'pip install "taxwatch[corpus]"'
+            'Reading a Parquet corpus needs pyarrow. Install with: pip install "taxwatch[corpus]"'
         ) from exc
 
     parquet = pq.ParquetFile(str(path))

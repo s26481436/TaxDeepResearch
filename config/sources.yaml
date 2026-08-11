@@ -63,13 +63,12 @@ sources:
   cn-mof:
     country: CN
     connector: cn_mof
-    description: "财政部 — 税政司/条法司政策发布"
+    description: "财政部 — 税政司政策发布（szs.mof.gov.cn，税务相关公告）"
     enabled: true
     config:
       base_url: "https://www.mof.gov.cn"
       list_paths:
-        - "/gkml/szs/zhengcefabu/index.htm"
-        - "/gkml/tfs/index.htm"
+        - "/zhengwuxinxi/zhengcefabu/"  # 财政部政策发布列表（含税政司文件）
       keywords:
         - "企业所得税"
         - "增值税"

@@ -1,4 +1,5 @@
 """Job runner abstraction — LocalRunner now, CeleryRunner later."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -11,18 +12,23 @@ from taxwatch.models import JobRun, JobStatus, TriggerType
 class JobRunner(ABC):
     @abstractmethod
     def submit(
-        self, job_type: str, source_key: str = "",
-        trigger: TriggerType = TriggerType.MANUAL, **kwargs,
-    ) -> JobRun:
-        ...
+        self,
+        job_type: str,
+        source_key: str = "",
+        trigger: TriggerType = TriggerType.MANUAL,
+        **kwargs,
+    ) -> JobRun: ...
 
 
 class LocalRunner(JobRunner):
     """Synchronous runner — executes immediately in the current process."""
 
     def submit(
-        self, job_type: str, source_key: str = "",
-        trigger: TriggerType = TriggerType.MANUAL, **kwargs,
+        self,
+        job_type: str,
+        source_key: str = "",
+        trigger: TriggerType = TriggerType.MANUAL,
+        **kwargs,
     ) -> JobRun:
         session = get_session()
         run = JobRun(

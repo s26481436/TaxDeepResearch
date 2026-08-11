@@ -6,10 +6,9 @@ Validated data sources (2026-08-11):
 - Federal Register: https://www.federalregister.gov/api/v1/ — public
 - State statutes: CA leginfo, TX statutes, FL flsenate (all public HTML)
 """
+
 from __future__ import annotations
 
-import io
-import json
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
@@ -21,7 +20,6 @@ from taxwatch.connectors.us_govinfo_cfr import UsGovinfoConnector, _parse_http_d
 from taxwatch.connectors.us_state_tax import UsStateTaxConnector
 from taxwatch.normalize.us_cfr_xml import UsCfrXmlNormalizer, _build_node_key
 from taxwatch.normalize.us_state_tax_html import UsStateTaxHtmlNormalizer
-
 
 # ---------------------------------------------------------------------------
 # Fixture helpers
@@ -78,58 +76,62 @@ _ECFR_VERSIONS = {
 
 # Minimal CFR XML matching govinfo.gov format
 _CFR_XML = (
-    "<?xml version=\"1.0\"?>"
+    '<?xml version="1.0"?>'
     "<CFRDOC>"
-    "<TITLE N=\"26\"><CHAPTER N=\"I\"><PART N=\"1\">"
+    '<TITLE N="26"><CHAPTER N="I"><PART N="1">'
     "<HEAD>PART 1--INCOME TAXES</HEAD>"
     "<SECTION>"
     "<SECTNO>§ 1.1-1</SECTNO>"
     "<SUBJECT>Income tax on individuals.</SUBJECT>"
-    "<P>General rule. A tax is hereby imposed for each taxable year on the taxable income of every individual.</P>"
+    "<P>General rule. A tax is hereby imposed for each taxable year on the taxable income of every individual.</P>"  # noqa: E501
     "</SECTION>"
     "<SECTION>"
     "<SECTNO>§ 1.1-2</SECTNO>"
     "<SUBJECT>Limitation on tax.</SUBJECT>"
-    "<P>In the case of a tax year beginning after December 31, 2017, the tax imposed shall not exceed the limit provided.</P>"
+    "<P>In the case of a tax year beginning after December 31, 2017, the tax imposed shall not exceed the limit provided.</P>"  # noqa: E501
     "</SECTION>"
     "</PART></CHAPTER></TITLE>"
     "</CFRDOC>"
-).encode("utf-8")
+).encode()
 
 _CA_HTML = (
-    "<html><body>"
-    "<div id=\"lawcontent\"><div class=\"lawcode\">"
-    "<p class=\"lawtext\">17041. (a) There shall be levied, collected, and paid for each taxable year upon the entire net income received by every individual a tax in the following amounts and at the following rates.</p>"
-    "<p class=\"lawtext\">(b) In lieu of the tax imposed by subdivision (a), there is hereby imposed a tax at the rate of 13.3 percent on the entire taxable income of an individual.</p>"
-    "</div></div>"
-    "</body></html>"
-).encode("utf-8")
+    b"<html><body>"
+    b'<div id="lawcontent"><div class="lawcode">'
+    b'<p class="lawtext">17041. (a) There shall be levied, collected, and paid for each taxable year upon the entire net income received by every individual a tax in the following amounts and at the following rates.</p>'  # noqa: E501
+    b'<p class="lawtext">(b) In lieu of the tax imposed by subdivision (a), there is hereby imposed a tax at the rate of 13.3 percent on the entire taxable income of an individual.</p>'  # noqa: E501
+    b"</div></div>"
+    b"</body></html>"
+)
 
 _TX_HTML = (
-    "<html><body>"
-    "<div class=\"section codeSect\">"
-    "<b>Sec. 171.001. DEFINITIONS.</b>"
-    "<p class=\"body-text\">In this chapter, taxable entity means a partnership, limited liability company, business trust, professional association, business association, joint venture, or other legal entity.</p>"
-    "</div>"
-    "<div class=\"section codeSect\">"
-    "<b>Sec. 171.002. RATE; COMPUTATION OF TAX.</b>"
-    "<p class=\"body-text\">The rate of the franchise tax is 0.75 percent of taxable margin for most entities.</p>"
-    "</div>"
-    "</body></html>"
-).encode("utf-8")
+    b"<html><body>"
+    b'<div class="section codeSect">'
+    b"<b>Sec. 171.001. DEFINITIONS.</b>"
+    b'<p class="body-text">In this chapter, taxable entity means a partnership, limited liability company, business trust, professional association, business association, joint venture, or other legal entity.</p>'  # noqa: E501
+    b"</div>"
+    b'<div class="section codeSect">'
+    b"<b>Sec. 171.002. RATE; COMPUTATION OF TAX.</b>"
+    b'<p class="body-text">The rate of the franchise tax is 0.75 percent of taxable margin for most entities.</p>'  # noqa: E501
+    b"</div>"
+    b"</body></html>"
+)
 
 
 # ---------------------------------------------------------------------------
 # _parse_iso
 # ---------------------------------------------------------------------------
 
+
 class TestParseIso:
-    @pytest.mark.parametrize("raw,expected", [
-        ("2026-07-09", datetime(2026, 7, 9)),
-        ("2025-12-31", datetime(2025, 12, 31)),
-        ("", None),
-        ("not-a-date", None),
-    ])
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("2026-07-09", datetime(2026, 7, 9)),
+            ("2025-12-31", datetime(2025, 12, 31)),
+            ("", None),
+            ("not-a-date", None),
+        ],
+    )
     def test_variants(self, raw, expected):
         assert _parse_iso(raw) == expected
 
@@ -137,6 +139,7 @@ class TestParseIso:
 # ---------------------------------------------------------------------------
 # _parse_http_date
 # ---------------------------------------------------------------------------
+
 
 class TestParseHttpDate:
     def test_valid_rfc_date(self):
@@ -150,6 +153,7 @@ class TestParseHttpDate:
 # ---------------------------------------------------------------------------
 # UsEcfrConnector
 # ---------------------------------------------------------------------------
+
 
 class TestUsEcfrConnector:
     @pytest.fixture
@@ -222,6 +226,7 @@ class TestUsEcfrConnector:
 # UsGovinfoConnector
 # ---------------------------------------------------------------------------
 
+
 class TestUsGovinfoConnector:
     @pytest.fixture
     def connector(self):
@@ -283,6 +288,7 @@ class TestUsGovinfoConnector:
 # UsStateTaxConnector
 # ---------------------------------------------------------------------------
 
+
 class TestUsStateTaxConnector:
     @pytest.fixture
     def connector(self):
@@ -302,9 +308,7 @@ class TestUsStateTaxConnector:
 
     def test_ca_external_ids_follow_scheme(self, connector):
         with patch("taxwatch.connectors.us_state_tax.fetch_with_retry") as mock_fetch:
-            mock_fetch.return_value = MagicMock(
-                status_code=200, headers={}
-            )
+            mock_fetch.return_value = MagicMock(status_code=200, headers={})
             refs = connector.discover()
 
         ca_refs = [r for r in refs if r.metadata["state"] == "CA"]
@@ -358,6 +362,7 @@ class TestUsStateTaxConnector:
 # ---------------------------------------------------------------------------
 # UsCfrXmlNormalizer
 # ---------------------------------------------------------------------------
+
 
 class TestUsCfrXmlNormalizer:
     def test_extracts_sections(self):
@@ -423,27 +428,39 @@ class TestUsCfrXmlNormalizer:
 # UsStateTaxHtmlNormalizer
 # ---------------------------------------------------------------------------
 
+
 class TestUsStateTaxHtmlNormalizer:
     def test_ca_extracts_text(self):
         raw = RawDocument(
             external_id="CA:RTC-17041",
             content=_CA_HTML,
             content_type="text/html",
-            metadata={"state": "CA", "statute_code": "RTC", "section": "17041",
-                      "jurisdiction": "US-CA", "tax_type": "income_tax"},
+            metadata={
+                "state": "CA",
+                "statute_code": "RTC",
+                "section": "17041",
+                "jurisdiction": "US-CA",
+                "tax_type": "income_tax",
+            },
         )
         doc = UsStateTaxHtmlNormalizer().normalize(raw)
         assert len(doc.provisions) >= 1
         assert "CA:RTC-17041" in doc.provisions[0].node_key
-        assert "17041" in doc.provisions[0].text or "taxable income" in doc.provisions[0].text.lower()
+        text = doc.provisions[0].text.lower()
+        assert "17041" in doc.provisions[0].text or "taxable income" in text
 
     def test_tx_extracts_multiple_sections(self):
         raw = RawDocument(
             external_id="TX:TC-171",
             content=_TX_HTML,
             content_type="text/html",
-            metadata={"state": "TX", "statute_code": "TX Tax Code", "chapter": "171",
-                      "jurisdiction": "US-TX", "tax_type": "franchise_tax"},
+            metadata={
+                "state": "TX",
+                "statute_code": "TX Tax Code",
+                "chapter": "171",
+                "jurisdiction": "US-TX",
+                "tax_type": "franchise_tax",
+            },
         )
         doc = UsStateTaxHtmlNormalizer().normalize(raw)
         assert len(doc.provisions) >= 2  # DEFINITIONS + RATE
@@ -453,8 +470,13 @@ class TestUsStateTaxHtmlNormalizer:
             external_id="CA:RTC-17041",
             content=_CA_HTML,
             content_type="text/html",
-            metadata={"state": "CA", "statute_code": "RTC", "section": "17041",
-                      "jurisdiction": "US-CA", "tax_type": "income_tax"},
+            metadata={
+                "state": "CA",
+                "statute_code": "RTC",
+                "section": "17041",
+                "jurisdiction": "US-CA",
+                "tax_type": "income_tax",
+            },
         )
         doc = UsStateTaxHtmlNormalizer().normalize(raw)
         assert doc.metadata["state"] == "CA"
@@ -466,8 +488,12 @@ class TestUsStateTaxHtmlNormalizer:
             external_id="ZZ:unknown-123",
             content=b"<html><body><main><p>Tax law text.</p></main></body></html>",
             content_type="text/html",
-            metadata={"state": "ZZ", "external_id": "unknown-123",
-                      "jurisdiction": "US-ZZ", "tax_type": "unknown"},
+            metadata={
+                "state": "ZZ",
+                "external_id": "unknown-123",
+                "jurisdiction": "US-ZZ",
+                "tax_type": "unknown",
+            },
         )
         doc = UsStateTaxHtmlNormalizer().normalize(raw)
         assert len(doc.provisions) == 1
@@ -478,18 +504,22 @@ class TestUsStateTaxHtmlNormalizer:
 # Coverage map: correct state codes and tax types
 # ---------------------------------------------------------------------------
 
+
 class TestStateConfig:
     """Verify state coverage is coherent."""
 
     STATES_WITH_INCOME_TAX = {"CA", "NY", "IL"}
-    STATES_WITHOUT_INCOME_TAX = {"TX", "WA", "FL"}  # FL has corp income; TX/WA have no personal income tax
+    # FL has corp income; TX/WA have no personal income tax
+    STATES_WITHOUT_INCOME_TAX = {"TX", "WA", "FL"}
 
     def test_all_six_states_registered(self):
         from taxwatch.connectors.us_state_tax import _ADAPTERS
+
         assert set(_ADAPTERS.keys()) >= {"CA", "TX", "FL", "WA", "NY", "IL"}
 
     def test_state_adapters_have_required_attributes(self):
         from taxwatch.connectors.us_state_tax import _ADAPTERS
+
         for code, cls in _ADAPTERS.items():
             assert cls.state_code == code
             assert cls.state_name

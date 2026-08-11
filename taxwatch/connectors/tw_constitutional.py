@@ -1,4 +1,5 @@
 """司法院釋字／憲判字 connector."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -22,6 +23,7 @@ class TwConstitutionalConnector(Connector):
         try:
             resp = fetch_with_retry(client, f"{base}/jcc/sunshine", params={"keyword": "稅"})
             from taxwatch.connectors._tw_html_parser import parse_interpretation_list
+
             refs = parse_interpretation_list(resp.text, base)
         except Exception:
             pass

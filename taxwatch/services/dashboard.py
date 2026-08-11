@@ -1,4 +1,5 @@
 """Dashboard aggregates: headline stats, recent changes, job health."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -28,9 +29,7 @@ def get_stats(session: Session, *, recent_days: int = 7) -> dict[str, Any]:
     classify_doc = make_classifier(session)
     tax_keys = {
         classify_doc(title, external_id).key
-        for title, external_id in session.query(
-            Document.title, Document.external_id
-        ).all()
+        for title, external_id in session.query(Document.title, Document.external_id).all()
     }
 
     recent_changes = session.query(Change).filter(Change.detected_at >= cutoff).count()
@@ -42,8 +41,10 @@ def get_stats(session: Session, *, recent_days: int = 7) -> dict[str, Any]:
     )
     confidences = [
         a.confidence
-        for a in session.query(Analysis).join(Change, Analysis.change_id == Change.id)
-        .filter(Change.detected_at >= cutoff).all()
+        for a in session.query(Analysis)
+        .join(Change, Analysis.change_id == Change.id)
+        .filter(Change.detected_at >= cutoff)
+        .all()
     ]
 
     return {
@@ -108,8 +109,7 @@ def get_change_detail(session: Session, change_id: int) -> dict[str, Any]:
 
     change, doc, source, analysis = row
     classify_doc = make_classifier(session)
-    detail = _change_row(change, doc, source, analysis,
-                         classify_doc(doc.title, doc.external_id))
+    detail = _change_row(change, doc, source, analysis, classify_doc(doc.title, doc.external_id))
     detail["diff_text"] = change.diff_text
     detail["old_text"], detail["new_text"] = _provision_texts(session, change)
     detail["analysis"] = (
@@ -123,7 +123,8 @@ def get_change_detail(session: Session, change_id: int) -> dict[str, Any]:
             "model": analysis.model,
             "created_at": analysis.created_at.isoformat(),
         }
-        if analysis else None
+        if analysis
+        else None
     )
     return detail
 
@@ -141,7 +142,8 @@ def list_runs(session: Session, *, limit: int = 30) -> list[dict[str, Any]]:
             "finished_at": r.finished_at.isoformat() if r.finished_at else None,
             "duration_seconds": (
                 round((r.finished_at - r.started_at).total_seconds(), 1)
-                if r.started_at and r.finished_at else None
+                if r.started_at and r.finished_at
+                else None
             ),
             "stats": r.stats,
             "error": r.error,

@@ -9,6 +9,7 @@ from taxwatch.connectors.base import RawDocument
 @dataclass
 class ProvisionData:
     """A single provision (條文) extracted from a document."""
+
     node_key: str
     heading: str
     text: str
@@ -17,6 +18,7 @@ class ProvisionData:
 @dataclass
 class NormalizedDoc:
     """Normalized representation of a legal document."""
+
     external_id: str
     title: str
     provisions: list[ProvisionData]

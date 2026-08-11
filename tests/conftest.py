@@ -1,4 +1,5 @@
 """Shared test fixtures: an in-memory database with a seeded document history."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -60,13 +61,15 @@ def make_snapshot(
     db.add(snapshot)
     db.flush()
     for node_key, text in provisions.items():
-        db.add(ProvisionNode(
-            snapshot_id=snapshot.id,
-            node_key=node_key,
-            heading=node_key.split("#")[-1],
-            text=text,
-            text_hash=f"h-{hash(text) & 0xffffffff:08x}",
-        ))
+        db.add(
+            ProvisionNode(
+                snapshot_id=snapshot.id,
+                node_key=node_key,
+                heading=node_key.split("#")[-1],
+                text=text,
+                text_hash=f"h-{hash(text) & 0xFFFFFFFF:08x}",
+            )
+        )
     db.flush()
     return snapshot
 
@@ -101,21 +104,39 @@ def seeded(session: Session) -> dict:
     session.add(doc)
     session.flush()
 
-    v1 = make_snapshot(session, doc, datetime(2020, 6, 1), {
-        "企业所得税法#1": "在中华人民共和国境内，企业为企业所得税的纳税人。",
-        "企业所得税法#28": "符合条件的小型微利企业，减按20%的税率征收企业所得税。",
-    }, "hash-v1")
+    v1 = make_snapshot(
+        session,
+        doc,
+        datetime(2020, 6, 1),
+        {
+            "企业所得税法#1": "在中华人民共和国境内，企业为企业所得税的纳税人。",
+            "企业所得税法#28": "符合条件的小型微利企业，减按20%的税率征收企业所得税。",
+        },
+        "hash-v1",
+    )
 
-    v2 = make_snapshot(session, doc, datetime(2023, 6, 1), {
-        "企业所得税法#1": "在中华人民共和国境内，企业为企业所得税的纳税人。",
-        "企业所得税法#28": "符合条件的小型微利企业，减按15%的税率征收企业所得税。",
-    }, "hash-v2")
+    v2 = make_snapshot(
+        session,
+        doc,
+        datetime(2023, 6, 1),
+        {
+            "企业所得税法#1": "在中华人民共和国境内，企业为企业所得税的纳税人。",
+            "企业所得税法#28": "符合条件的小型微利企业，减按15%的税率征收企业所得税。",
+        },
+        "hash-v2",
+    )
 
-    v3 = make_snapshot(session, doc, datetime(2026, 8, 1), {
-        "企业所得税法#1": "在中华人民共和国境内，企业为企业所得税的纳税人。",
-        "企业所得税法#28": "符合条件的小型微利企业，减按25%的税率征收企业所得税。",
-        "企业所得税法#43": "制造业企业研发费用按实际发生额的100%在税前加计扣除。",
-    }, "hash-v3")
+    v3 = make_snapshot(
+        session,
+        doc,
+        datetime(2026, 8, 1),
+        {
+            "企业所得税法#1": "在中华人民共和国境内，企业为企业所得税的纳税人。",
+            "企业所得税法#28": "符合条件的小型微利企业，减按25%的税率征收企业所得税。",
+            "企业所得税法#43": "制造业企业研发费用按实际发生额的100%在税前加计扣除。",
+        },
+        "hash-v3",
+    )
 
     change_v2 = Change(
         document_id=doc.id,
@@ -140,26 +161,32 @@ def seeded(session: Session) -> dict:
     session.add_all([change_v2, change_v3])
     session.flush()
 
-    session.add(Analysis(
-        change_id=change_v3.id,
-        summary_zh="小型微利企业税率由15%调整为25%。",
-        effective_date="2026-01-01",
-        affected_parties=["小型微利企业", "制造业"],
-        parent_law_impact="实施条例第92条需配合修订。",
-        confidence=0.9,
-        citations=[{"source": "企业所得税法", "article": "28", "url": "https://example.gov.cn/law"}],
-        model="test-model",
-    ))
+    session.add(
+        Analysis(
+            change_id=change_v3.id,
+            summary_zh="小型微利企业税率由15%调整为25%。",
+            effective_date="2026-01-01",
+            affected_parties=["小型微利企业", "制造业"],
+            parent_law_impact="实施条例第92条需配合修订。",
+            confidence=0.9,
+            citations=[
+                {"source": "企业所得税法", "article": "28", "url": "https://example.gov.cn/law"}
+            ],
+            model="test-model",
+        )
+    )
 
-    session.add(JobRun(
-        job_type="pipeline",
-        trigger=TriggerType.MANUAL,
-        source_key="cn-chinatax",
-        status=JobStatus.COMPLETED,
-        started_at=datetime.utcnow() - timedelta(minutes=5),
-        finished_at=datetime.utcnow() - timedelta(minutes=4),
-        stats={"documents": 1, "changes": 1},
-    ))
+    session.add(
+        JobRun(
+            job_type="pipeline",
+            trigger=TriggerType.MANUAL,
+            source_key="cn-chinatax",
+            status=JobStatus.COMPLETED,
+            started_at=datetime.utcnow() - timedelta(minutes=5),
+            finished_at=datetime.utcnow() - timedelta(minutes=4),
+            stats={"documents": 1, "changes": 1},
+        )
+    )
     session.commit()
 
     return {

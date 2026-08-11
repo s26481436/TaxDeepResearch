@@ -1,4 +1,5 @@
 """Tax-type status endpoints."""
+
 from __future__ import annotations
 
 from typing import Any

@@ -1,4 +1,5 @@
 """Tests for tax-type rollups and dashboard aggregates."""
+
 import pytest
 
 from taxwatch.services import dashboard as dash_svc

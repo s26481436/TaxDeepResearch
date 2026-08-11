@@ -1,4 +1,5 @@
 """Tests for diff engine and severity classification."""
+
 from pathlib import Path
 
 from taxwatch.connectors.base import RawDocument

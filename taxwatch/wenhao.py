@@ -10,6 +10,7 @@ Two things make naive patterns fail:
 - Prefixes are open-ended: 财税, 税总发, 税总函, 税总办发, 国税函发, 财关税,
   and joint issuances that name several ministries before 公告.
 """
+
 from __future__ import annotations
 
 import re
@@ -25,10 +26,7 @@ _YEAR_NO = r"\d{4}\s*年\s*第\s*\d+\s*号"
 # 「和国家税务总局公告…」 would match from 和, 「根据国家税务总局公告…」 from 根.
 # No real ministry starts with any of these. Note 发 is deliberately absent:
 # 发展改革委 is a real issuing body.
-_NOT_ORG_HEAD = (
-    "和及与根据依照按见参详本该其等的了并或另如"
-    "废止适用修订印执转引布施续现自将"
-)
+_NOT_ORG_HEAD = "和及与根据依照按见参详本该其等的了并或另如废止适用修订印执转引布施续现自将"
 # 新 (新疆, 新闻出版署), 经 (经济和信息化委员会) and 原 are deliberately absent:
 # they head real issuing bodies and abbreviations.
 
@@ -100,8 +98,9 @@ def normalize(wenhao: str) -> str:
     # Government exports frequently carry a BOM or zero-width joiner.
     text = wenhao.replace("﻿", "").replace("​", "")
     text = re.sub(r"\s+", "", text)
-    text = text.translate(str.maketrans({"[": "〔", "]": "〕", "（": "〔", "）": "〕",
-                                         "(": "〔", ")": "〕"}))
+    text = text.translate(
+        str.maketrans({"[": "〔", "]": "〕", "（": "〔", "）": "〕", "(": "〔", ")": "〕"})
+    )
     return text
 
 

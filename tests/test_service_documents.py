@@ -1,4 +1,5 @@
 """Tests for document version-history queries."""
+
 from datetime import date
 
 import pytest
@@ -90,9 +91,7 @@ def test_diff_skips_the_intermediate_version(session, seeded):
 
 
 def test_diff_within_one_version_is_flagged_unchanged(session, seeded):
-    diff = svc.get_diff(
-        session, "cn-enterprise-income-tax-law", date(2020, 7, 1), date(2021, 1, 1)
-    )
+    diff = svc.get_diff(session, "cn-enterprise-income-tax-law", date(2020, 7, 1), date(2021, 1, 1))
     assert diff["unchanged"] is True
     assert diff["summary"]["total"] == 0
 
