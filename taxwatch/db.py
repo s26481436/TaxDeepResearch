@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from taxwatch.models import Base
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from taxwatch.config import get_settings
+from taxwatch.models import Base
 
 _engine = None
 _session_factory: sessionmaker[Session] | None = None

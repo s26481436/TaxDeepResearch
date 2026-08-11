@@ -14,6 +14,7 @@ provisions — matching the same convention as the TW normalizer.
 
 Node key format:  "26 CFR § 1.1-1"  (CFR citation style)
 """
+
 from __future__ import annotations
 
 import re
@@ -84,7 +85,7 @@ def _parse_section(el: ET.Element, out: list[ProvisionData]) -> None:
     if sectno_el is None:
         return
 
-    sectno = _text(sectno_el).strip()   # e.g. "§ 1.1-1"
+    sectno = _text(sectno_el).strip()  # e.g. "§ 1.1-1"
     subject = _text(subject_el).strip() if subject_el is not None else ""
 
     # Gather body paragraphs
@@ -103,11 +104,13 @@ def _parse_section(el: ET.Element, out: list[ProvisionData]) -> None:
 
     node_key = _build_node_key(sectno)
     heading = f"{sectno}  {subject}".strip()
-    out.append(ProvisionData(
-        node_key=node_key,
-        heading=heading,
-        text=normalize_text(f"{subject}\n{body}".strip()),
-    ))
+    out.append(
+        ProvisionData(
+            node_key=node_key,
+            heading=heading,
+            text=normalize_text(f"{subject}\n{body}".strip()),
+        )
+    )
 
 
 def _build_node_key(sectno: str) -> str:

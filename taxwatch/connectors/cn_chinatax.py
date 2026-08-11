@@ -5,6 +5,7 @@ PDF attachments. Uses 文号 (e.g. 国家税务总局公告2026年第X号) as st
 
 Focus: enterprise/manufacturing tax — 企业所得税, 增值税, 印花税, 环保税, 资源税.
 """
+
 from __future__ import annotations
 
 import re
@@ -40,17 +41,33 @@ class CnChinataxConnector(Connector):
         base = self._base_url()
         refs: list[DocumentRef] = []
 
-        list_paths = self.source_config.get("list_paths", [
-            "/chinatax/n810341/n810755/index.html",   # 税收法规
-            "/chinatax/n810341/n810765/index.html",   # 税务部门规章
-            "/chinatax/n810341/n810825/index.html",   # 规范性文件
-        ])
+        list_paths = self.source_config.get(
+            "list_paths",
+            [
+                "/chinatax/n810341/n810755/index.html",  # 税收法规
+                "/chinatax/n810341/n810765/index.html",  # 税务部门规章
+                "/chinatax/n810341/n810825/index.html",  # 规范性文件
+            ],
+        )
 
-        keywords = self.source_config.get("keywords", [
-            "企业所得税", "增值税", "印花税", "环境保护税", "资源税",
-            "城市维护建设税", "税收征收管理", "制造业", "小微企业",
-            "研发费用", "加计扣除", "留抵退税", "出口退税",
-        ])
+        keywords = self.source_config.get(
+            "keywords",
+            [
+                "企业所得税",
+                "增值税",
+                "印花税",
+                "环境保护税",
+                "资源税",
+                "城市维护建设税",
+                "税收征收管理",
+                "制造业",
+                "小微企业",
+                "研发费用",
+                "加计扣除",
+                "留抵退税",
+                "出口退税",
+            ],
+        )
 
         for path in list_paths:
             try:
@@ -65,6 +82,7 @@ class CnChinataxConnector(Connector):
 
     def fetch(self, ref: DocumentRef) -> RawDocument:
         import logging
+
         import httpx
 
         client = create_client(timeout=60, headers={"Accept-Charset": "utf-8"})
@@ -74,7 +92,7 @@ class CnChinataxConnector(Connector):
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 404:
                 logging.getLogger(__name__).warning(
-                    "chinatax document URL returned 404 (page may have moved to fgk subdomain): %s", url
+                    "chinatax 404 (moved to fgk subdomain?): %s", url
                 )
                 # Return empty content so pipeline can skip gracefully
                 return RawDocument(
@@ -94,7 +112,10 @@ class CnChinataxConnector(Connector):
         )
 
     def _parse_list_page(
-        self, html: str, base_url: str, keywords: list[str],
+        self,
+        html: str,
+        base_url: str,
+        keywords: list[str],
     ) -> list[DocumentRef]:
         soup = BeautifulSoup(html, "html.parser")
         refs: list[DocumentRef] = []
@@ -120,14 +141,16 @@ class CnChinataxConnector(Connector):
             parent = link.find_parent(["li", "tr", "div"])
             date = _extract_date_from_context(parent) if parent else None
 
-            refs.append(DocumentRef(
-                external_id=doc_id,
-                title=title,
-                doc_type=doc_type,
-                url=href,
-                issued_at=date,
-                metadata={"wenhao": doc_id if doc_id != title[:80] else ""},
-            ))
+            refs.append(
+                DocumentRef(
+                    external_id=doc_id,
+                    title=title,
+                    doc_type=doc_type,
+                    url=href,
+                    issued_at=date,
+                    metadata={"wenhao": doc_id if doc_id != title[:80] else ""},
+                )
+            )
 
         return refs
 

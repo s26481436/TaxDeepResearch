@@ -4,6 +4,7 @@
 JSON-only app and the dashboard app mount exactly this list, so an endpoint
 can never exist on one and be missing from the other.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter

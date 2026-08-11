@@ -23,6 +23,7 @@ class Base(DeclarativeBase):
 
 # ---------- Enums ----------
 
+
 class DocType(enum.StrEnum):
     STATUTE = "statute"
     REGULATION = "regulation"
@@ -75,6 +76,7 @@ class TriggerType(enum.StrEnum):
 
 # ---------- Document & Version tables ----------
 
+
 class Source(Base):
     __tablename__ = "sources"
 
@@ -103,12 +105,11 @@ class Document(Base):
 
     source: Mapped[Source] = relationship(back_populates="documents")
     snapshots: Mapped[list[Snapshot]] = relationship(
-        back_populates="document", order_by="Snapshot.fetched_at.desc()",
+        back_populates="document",
+        order_by="Snapshot.fetched_at.desc()",
     )
 
-    __table_args__ = (
-        UniqueConstraint("source_id", "external_id", name="uq_doc_source_ext"),
-    )
+    __table_args__ = (UniqueConstraint("source_id", "external_id", name="uq_doc_source_ext"),)
 
 
 class Snapshot(Base):
@@ -123,9 +124,7 @@ class Snapshot(Base):
     document: Mapped[Document] = relationship(back_populates="snapshots")
     provisions: Mapped[list[ProvisionNode]] = relationship(back_populates="snapshot")
 
-    __table_args__ = (
-        Index("ix_snapshot_doc_fetched", "document_id", "fetched_at"),
-    )
+    __table_args__ = (Index("ix_snapshot_doc_fetched", "document_id", "fetched_at"),)
 
 
 class ProvisionNode(Base):
@@ -140,9 +139,7 @@ class ProvisionNode(Base):
 
     snapshot: Mapped[Snapshot] = relationship(back_populates="provisions")
 
-    __table_args__ = (
-        Index("ix_prov_snapshot_key", "snapshot_id", "node_key"),
-    )
+    __table_args__ = (Index("ix_prov_snapshot_key", "snapshot_id", "node_key"),)
 
 
 class Change(Base):
@@ -160,12 +157,11 @@ class Change(Base):
 
     analysis: Mapped[Analysis | None] = relationship(back_populates="change", uselist=False)
 
-    __table_args__ = (
-        Index("ix_change_doc_detected", "document_id", "detected_at"),
-    )
+    __table_args__ = (Index("ix_change_doc_detected", "document_id", "detected_at"),)
 
 
 # ---------- Legal Graph ----------
+
 
 class LegalEntity(Base):
     __tablename__ = "legal_entities"
@@ -190,9 +186,7 @@ class LegalRelation(Base):
     confidence: Mapped[float] = mapped_column(Float, default=1.0)
     evidence_text: Mapped[str] = mapped_column(Text, default="")
     extracted_by: Mapped[ExtractionMethod] = mapped_column(Enum(ExtractionMethod))
-    source_change_id: Mapped[int | None] = mapped_column(
-        ForeignKey("changes.id"), nullable=True
-    )
+    source_change_id: Mapped[int | None] = mapped_column(ForeignKey("changes.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     from_entity: Mapped[LegalEntity] = relationship(foreign_keys=[from_entity_id])
@@ -200,13 +194,16 @@ class LegalRelation(Base):
 
     __table_args__ = (
         UniqueConstraint(
-            "from_entity_id", "to_entity_id", "relation_type",
+            "from_entity_id",
+            "to_entity_id",
+            "relation_type",
             name="uq_relation_from_to_type",
         ),
     )
 
 
 # ---------- Reference corpus ----------
+
 
 class CorpusDocument(Base):
     """A document from an external reference corpus.
@@ -251,6 +248,7 @@ class CorpusDocument(Base):
 
 # ---------- Analysis ----------
 
+
 class Analysis(Base):
     __tablename__ = "analyses"
 
@@ -269,6 +267,7 @@ class Analysis(Base):
 
 
 # ---------- Job tracking ----------
+
 
 class JobRun(Base):
     __tablename__ = "job_runs"

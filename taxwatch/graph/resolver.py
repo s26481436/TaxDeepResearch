@@ -1,4 +1,5 @@
 """Resolve citation entity_keys to LegalEntity records, creating if needed."""
+
 from __future__ import annotations
 
 import re

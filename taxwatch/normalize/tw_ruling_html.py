@@ -1,4 +1,5 @@
 """Normalizer for Taiwan MOF rulings and constitutional interpretations (HTML)."""
+
 from __future__ import annotations
 
 import re
@@ -49,11 +50,13 @@ class TwRulingHtmlNormalizer(Normalizer):
         sections = re.split(heading_pat, full_text)
 
         if len(sections) <= 1:
-            provisions.append(ProvisionData(
-                node_key=external_id,
-                heading="全文",
-                text=full_text,
-            ))
+            provisions.append(
+                ProvisionData(
+                    node_key=external_id,
+                    heading="全文",
+                    text=full_text,
+                )
+            )
             return provisions
 
         i = 1
@@ -62,11 +65,13 @@ class TwRulingHtmlNormalizer(Normalizer):
             body = sections[i + 1].strip() if i + 1 < len(sections) else ""
             clean_heading = re.sub(r"[：:]$", "", heading)
             node_key = f"{external_id}#{clean_heading}"
-            provisions.append(ProvisionData(
-                node_key=node_key,
-                heading=clean_heading,
-                text=normalize_text(body),
-            ))
+            provisions.append(
+                ProvisionData(
+                    node_key=node_key,
+                    heading=clean_heading,
+                    text=normalize_text(body),
+                )
+            )
             i += 2
 
         return provisions

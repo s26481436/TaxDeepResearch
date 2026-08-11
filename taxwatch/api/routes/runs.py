@@ -1,4 +1,5 @@
 """Pipeline run endpoints: trigger, inspect, list."""
+
 from __future__ import annotations
 
 from datetime import datetime

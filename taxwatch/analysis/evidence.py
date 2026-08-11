@@ -11,6 +11,7 @@ such:
 Searching is also the expensive half, so anything the corpus can answer never
 reaches the network.
 """
+
 from __future__ import annotations
 
 import logging
@@ -71,16 +72,12 @@ def gather(
         found.extend(_from_corpus(session, node_key, new_text))
 
     if found and not search_when_corpus_hits:
-        logger.info(
-            "Evidence for %s: %d corpus hit(s), search skipped", node_key, len(found)
-        )
+        logger.info("Evidence for %s: %d corpus hit(s), search skipped", node_key, len(found))
         return found
 
     before = len(found)
     found.extend(_from_search(document_title, node_key, new_text))
-    logger.info(
-        "Evidence for %s: %d corpus, %d search", node_key, before, len(found) - before
-    )
+    logger.info("Evidence for %s: %d corpus, %d search", node_key, before, len(found) - before)
     return found
 
 
@@ -125,8 +122,7 @@ def _from_document(doc: CorpusDocument) -> Evidence:
 def _from_search(document_title: str, node_key: str, new_text: str) -> list[Evidence]:
     results = brave_search.gather_results(document_title, node_key, new_text)
     return [
-        Evidence(origin=SEARCH, title=r.title, snippet=r.description,
-                 url=r.url, written_date=r.age)
+        Evidence(origin=SEARCH, title=r.title, snippet=r.description, url=r.url, written_date=r.age)
         for r in results
     ]
 
@@ -134,10 +130,7 @@ def _from_search(document_title: str, node_key: str, new_text: str) -> list[Evid
 def format_evidence(items: list[Evidence]) -> str:
     """Render evidence for the prompt, keeping the two origins clearly apart."""
     if not items:
-        return (
-            "## 外部佐證\n\n"
-            "（查無外部資料，請僅依條文原文分析，並據此下修 confidence）"
-        )
+        return "## 外部佐證\n\n（查無外部資料，請僅依條文原文分析，並據此下修 confidence）"
 
     corpus = [e for e in items if e.origin == CORPUS]
     search = [e for e in items if e.origin == SEARCH]

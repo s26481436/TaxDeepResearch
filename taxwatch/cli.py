@@ -5,6 +5,7 @@ import sys
 # Ensure UTF-8 stdout/stderr on Windows (cp950 default breaks Chinese output)
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
     import io
+
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
@@ -26,7 +27,8 @@ def init_db():
 def seed_sources():
     """Load sources from config/sources.yaml into the database."""
     from taxwatch.config import load_sources
-    from taxwatch.db import get_session, init_db as _init_db
+    from taxwatch.db import get_session
+    from taxwatch.db import init_db as _init_db
 
     _init_db()
     from taxwatch.models import Source
@@ -43,14 +45,16 @@ def seed_sources():
                 existing.config = cfg.get("config", {})
                 existing.enabled = cfg.get("enabled", True)
             else:
-                session.add(Source(
-                    key=key,
-                    country=cfg["country"],
-                    connector=cfg["connector"],
-                    description=cfg.get("description", ""),
-                    config=cfg.get("config", {}),
-                    enabled=cfg.get("enabled", True),
-                ))
+                session.add(
+                    Source(
+                        key=key,
+                        country=cfg["country"],
+                        connector=cfg["connector"],
+                        description=cfg.get("description", ""),
+                        config=cfg.get("config", {}),
+                        enabled=cfg.get("enabled", True),
+                    )
+                )
         session.commit()
         typer.echo(f"Seeded {len(sources)} sources.")
     finally:
@@ -81,7 +85,8 @@ def graph_show(
     entity: str = typer.Argument(..., help="Entity key, e.g. 所得稅法#14"),
 ):
     """Show legal graph relations for an entity."""
-    from taxwatch.db import get_session, init_db as _init_db
+    from taxwatch.db import get_session
+    from taxwatch.db import init_db as _init_db
     from taxwatch.graph.relations import get_entity_context
 
     _init_db()
@@ -136,9 +141,7 @@ def import_corpus(
     path: str = typer.Argument(..., help="Path to the corpus .parquet file"),
     corpus_key: str = typer.Option("chinatax", help="Identifier for this corpus"),
     version: str = typer.Option("", help="Corpus snapshot date, e.g. 2026-02-27"),
-    base_url: str = typer.Option(
-        "https://fgk.chinatax.gov.cn", help="Base URL for relative links"
-    ),
+    base_url: str = typer.Option("https://fgk.chinatax.gov.cn", help="Base URL for relative links"),
 ):
     """Import a reference corpus used to resolve citations without web searches.
 
@@ -150,8 +153,8 @@ def import_corpus(
 
     from taxwatch.corpus.loader import import_corpus as run_import
     from taxwatch.db import get_session
-
     from taxwatch.db import init_db as _init_db
+
     _init_db()
     session = get_session()
     try:

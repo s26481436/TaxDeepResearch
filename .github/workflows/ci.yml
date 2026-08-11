@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "claude/**", "feature/**"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test:
+    name: Lint & Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Format check (ruff)
+        run: ruff format --check .
+
+      - name: Type check (mypy)
+        run: mypy taxwatch --ignore-missing-imports
+        continue-on-error: true  # mypy strict mode has many stubs gaps; advisory only
+
+      - name: Run tests
+        run: pytest -q --tb=short
+        env:
+          # Tests are fully offline — no real DB or LLM needed
+          DATABASE_URL: "postgresql+psycopg://taxwatch:taxwatch_dev@localhost:5432/taxwatch"
+          LLM_API_KEY: "test-key"
+          LLM_MODEL: "test-model"

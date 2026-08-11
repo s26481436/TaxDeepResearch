@@ -1,4 +1,5 @@
 """Tests for the Brave Search evidence layer."""
+
 import httpx
 import pytest
 import respx
@@ -40,14 +41,17 @@ def _payload(*items):
 @respx.mock
 def test_search_parses_results(enabled_settings):
     respx.get(_ENDPOINT).mock(
-        return_value=httpx.Response(200, json=_payload(
-            {
-                "title": "财政部 <strong>税务总局</strong>公告",
-                "description": "关于<strong>小微企业</strong>的公告",
-                "url": "https://example.gov.cn/a",
-                "age": "2 days ago",
-            },
-        ))
+        return_value=httpx.Response(
+            200,
+            json=_payload(
+                {
+                    "title": "财政部 <strong>税务总局</strong>公告",
+                    "description": "关于<strong>小微企业</strong>的公告",
+                    "url": "https://example.gov.cn/a",
+                    "age": "2 days ago",
+                },
+            ),
+        )
     )
     results = search("企业所得税 第28条")
     assert len(results) == 1
@@ -60,10 +64,13 @@ def test_search_parses_results(enabled_settings):
 @respx.mock
 def test_search_drops_results_without_url(enabled_settings):
     respx.get(_ENDPOINT).mock(
-        return_value=httpx.Response(200, json=_payload(
-            {"title": "no url", "description": "x", "url": ""},
-            {"title": "ok", "description": "y", "url": "https://example.gov.cn/b"},
-        ))
+        return_value=httpx.Response(
+            200,
+            json=_payload(
+                {"title": "no url", "description": "x", "url": ""},
+                {"title": "ok", "description": "y", "url": "https://example.gov.cn/b"},
+            ),
+        )
     )
     assert [r.url for r in search("查詢")] == ["https://example.gov.cn/b"]
 
@@ -116,9 +123,12 @@ def test_build_queries_non_numeric_article():
 @respx.mock
 def test_gather_results_deduplicates_by_url(enabled_settings):
     respx.get(_ENDPOINT).mock(
-        return_value=httpx.Response(200, json=_payload(
-            {"title": "same", "description": "d", "url": "https://example.gov.cn/same"},
-        ))
+        return_value=httpx.Response(
+            200,
+            json=_payload(
+                {"title": "same", "description": "d", "url": "https://example.gov.cn/same"},
+            ),
+        )
     )
     # Every query returns the same URL; it must collapse to one result.
     results = gather_results("企業所得稅法", "企業所得稅法#28", "小型微利企業減按25%計入")

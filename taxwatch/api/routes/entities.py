@@ -1,4 +1,5 @@
 """Legal-graph entity endpoints."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -24,18 +25,15 @@ def entity_context(entity_key: str) -> dict[str, Any]:
                 "title": ctx["entity"].canonical_title,
             },
             "parent_laws": [
-                {"relation": r.relation_type.value, "key": e.entity_key,
-                 "title": e.canonical_title}
+                {"relation": r.relation_type.value, "key": e.entity_key, "title": e.canonical_title}
                 for r, e in ctx["parent_laws"]
             ],
             "children": [
-                {"relation": r.relation_type.value, "key": e.entity_key,
-                 "title": e.canonical_title}
+                {"relation": r.relation_type.value, "key": e.entity_key, "title": e.canonical_title}
                 for r, e in ctx["children"]
             ],
             "siblings": [
-                {"key": e.entity_key, "title": e.canonical_title}
-                for e in ctx["siblings"]
+                {"key": e.entity_key, "title": e.canonical_title} for e in ctx["siblings"]
             ],
         }
     finally:

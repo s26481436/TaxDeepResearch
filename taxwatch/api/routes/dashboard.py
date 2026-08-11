@@ -1,4 +1,5 @@
 """Dashboard aggregate endpoints: stats and changes."""
+
 from __future__ import annotations
 
 from typing import Any

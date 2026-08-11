@@ -6,8 +6,7 @@ import httpx
 
 _DEFAULT_HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (compatible; TaxWatch/0.1; "
-        "+https://github.com/s26481436/TaxDeepResearch)"
+        "Mozilla/5.0 (compatible; TaxWatch/0.1; +https://github.com/s26481436/TaxDeepResearch)"
     ),
     "Accept": "text/html,application/xhtml+xml,application/xml,application/json,*/*;q=0.9",
     "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",

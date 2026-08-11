@@ -5,6 +5,7 @@ so the snapshot list *is* the version history. Diffs between arbitrary
 versions are computed on demand from the stored provisions rather than read
 from the `changes` table, which only records consecutive-snapshot deltas.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -66,18 +67,20 @@ def list_documents(
             continue
         snapshots = _snapshots(session, doc.id)
         latest = snapshots[-1] if snapshots else None
-        rows.append({
-            "external_id": doc.external_id,
-            "title": doc.title,
-            "url": doc.url,
-            "doc_type": doc.doc_type.value,
-            "country": source.country,
-            "source_key": source.key,
-            "tax_key": tax_type.key,
-            "tax_name": tax_type.name_zh,
-            "version_count": len(snapshots),
-            "last_updated": latest.fetched_at.isoformat() if latest else None,
-        })
+        rows.append(
+            {
+                "external_id": doc.external_id,
+                "title": doc.title,
+                "url": doc.url,
+                "doc_type": doc.doc_type.value,
+                "country": source.country,
+                "source_key": source.key,
+                "tax_key": tax_type.key,
+                "tax_name": tax_type.name_zh,
+                "version_count": len(snapshots),
+                "last_updated": latest.fetched_at.isoformat() if latest else None,
+            }
+        )
 
     rows.sort(key=lambda r: r["last_updated"] or "", reverse=True)
     return rows
@@ -152,8 +155,7 @@ def get_version_at(session: Session, external_id: str, at: date | datetime) -> d
         "snapshot_id": snapshot.id,
         "provision_count": len(provisions),
         "provisions": [
-            {"node_key": p.node_key, "heading": p.heading, "text": p.text}
-            for p in provisions
+            {"node_key": p.node_key, "heading": p.heading, "text": p.text} for p in provisions
         ],
     }
 
@@ -209,6 +211,7 @@ def get_diff(
 
 
 # ---------- internals ----------
+
 
 def _snapshots(session: Session, document_id: int) -> list[Snapshot]:
     return (

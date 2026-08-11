@@ -1,4 +1,5 @@
 """Tests for citation extraction."""
+
 from taxwatch.graph.citation import extract_citations
 
 

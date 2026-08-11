@@ -4,6 +4,7 @@ Every endpoint lives in a router under `taxwatch.api.routes` so the web
 dashboard (`taxwatch.web.app`) can serve the identical API surface from a
 single process.
 """
+
 from __future__ import annotations
 
 from fastapi import FastAPI

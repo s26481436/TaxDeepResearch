@@ -1,4 +1,5 @@
 """Pydantic models for structured LLM output."""
+
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
@@ -14,8 +15,7 @@ class ChangeAnalysis(BaseModel):
     summary_zh: str = Field(description="異動摘要（繁體中文）")
     change_nature: str = Field(
         description=(
-            "異動性質：新增條文 / 實質修改 / 稅率調整 / "
-            "門檻調整 / 程序變更 / 文字修正 / 刪除"
+            "異動性質：新增條文 / 實質修改 / 稅率調整 / 門檻調整 / 程序變更 / 文字修正 / 刪除"
         )
     )
     effective_date: str = Field(default="", description="生效日期（如可判斷）")
@@ -33,7 +33,8 @@ class ChangeAnalysis(BaseModel):
     )
     confidence: float = Field(
         default=0.5,
-        ge=0.0, le=1.0,
+        ge=0.0,
+        le=1.0,
         description="分析信心度 (0-1)",
     )
     citations: list[CitationRef] = Field(

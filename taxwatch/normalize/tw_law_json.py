@@ -18,6 +18,7 @@ ArticleType:
   "A" = 實質條文（要解析的）
   "C" = 章節標題（ArticleNo 為空，當作 section heading）
 """
+
 from __future__ import annotations
 
 import json
@@ -30,13 +31,13 @@ from taxwatch.normalize.text import normalize_text
 
 class TwLawJsonNormalizer(Normalizer):
     def normalize(self, raw: RawDocument) -> NormalizedDoc:
-        data = json.loads(raw.content.decode("utf-8") if isinstance(raw.content, bytes) else raw.content)
+        text = raw.content.decode("utf-8") if isinstance(raw.content, bytes) else raw.content
+        data = json.loads(text)
         law_name = data.get("LawName", raw.external_id)
         abandoned = bool(data.get("LawAbandonNote", "").strip())
         histories = data.get("LawHistories", "")
 
         provisions: list[ProvisionData] = []
-        current_chapter = ""
 
         for art in data.get("LawArticles", []):
             art_type = art.get("ArticleType", "A")
@@ -44,19 +45,19 @@ class TwLawJsonNormalizer(Normalizer):
             content = art.get("ArticleContent", "").strip()
 
             if art_type == "C":
-                # Chapter/section heading — track for context, don't add as provision
-                current_chapter = normalize_text(content)
-                continue
+                continue  # Chapter/section heading — skip, don't add as provision
 
             if not content:
                 continue
 
             node_key = _build_node_key(law_name, article_no)
-            provisions.append(ProvisionData(
-                node_key=node_key,
-                heading=article_no,
-                text=normalize_text(content),
-            ))
+            provisions.append(
+                ProvisionData(
+                    node_key=node_key,
+                    heading=article_no,
+                    text=normalize_text(content),
+                )
+            )
 
         meta: dict = {
             "source_format": "tw_law_json",

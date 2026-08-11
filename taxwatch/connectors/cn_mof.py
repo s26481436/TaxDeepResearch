@@ -3,6 +3,7 @@
 Scrapes 财政部条法司 / 税政司 policy listings.
 Focus: enterprise/manufacturing tax regulations and notices.
 """
+
 from __future__ import annotations
 
 import re
@@ -26,15 +27,29 @@ class CnMofConnector(Connector):
         base = self._base_url()
         refs: list[DocumentRef] = []
 
-        list_paths = self.source_config.get("list_paths", [
-            "/zhengwuxinxi/zhengcefabu/",  # 财政部政策发布（税政司文件 szs.mof.gov.cn）
-        ])
+        list_paths = self.source_config.get(
+            "list_paths",
+            [
+                "/zhengwuxinxi/zhengcefabu/",  # 财政部政策发布（税政司文件 szs.mof.gov.cn）
+            ],
+        )
 
-        keywords = self.source_config.get("keywords", [
-            "企业所得税", "增值税", "印花税", "环境保护税", "资源税",
-            "城市维护建设税", "税收", "制造业", "小微企业",
-            "研发费用", "加计扣除",
-        ])
+        keywords = self.source_config.get(
+            "keywords",
+            [
+                "企业所得税",
+                "增值税",
+                "印花税",
+                "环境保护税",
+                "资源税",
+                "城市维护建设税",
+                "税收",
+                "制造业",
+                "小微企业",
+                "研发费用",
+                "加计扣除",
+            ],
+        )
 
         for path in list_paths:
             list_url = f"{base}{path}"
@@ -66,7 +81,11 @@ class CnMofConnector(Connector):
         )
 
     def _parse_list_page(
-        self, html: str, base_url: str, keywords: list[str], list_url: str = "",
+        self,
+        html: str,
+        base_url: str,
+        keywords: list[str],
+        list_url: str = "",
     ) -> list[DocumentRef]:
         soup = BeautifulSoup(html, "html.parser")
         refs: list[DocumentRef] = []
@@ -93,17 +112,19 @@ class CnMofConnector(Connector):
             parent = link.find_parent(["li", "tr", "div"])
             date = self._extract_date(parent) if parent else None
 
-            refs.append(DocumentRef(
-                external_id=doc_id,
-                title=title,
-                doc_type="announcement",
-                url=href,
-                issued_at=date,
-                metadata={
-                    "wenhao": doc_id if "号" in doc_id else "",
-                    "list_url": list_url,
-                },
-            ))
+            refs.append(
+                DocumentRef(
+                    external_id=doc_id,
+                    title=title,
+                    doc_type="announcement",
+                    url=href,
+                    issued_at=date,
+                    metadata={
+                        "wenhao": doc_id if "号" in doc_id else "",
+                        "list_url": list_url,
+                    },
+                )
+            )
 
         return refs
 

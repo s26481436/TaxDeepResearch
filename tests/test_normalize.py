@@ -1,4 +1,5 @@
 """Tests for normalizers."""
+
 from pathlib import Path
 
 from taxwatch.connectors.base import RawDocument

@@ -8,6 +8,7 @@ the LLM can cite something beyond the provision itself.
 Search is strictly best-effort: any failure degrades to "no external
 evidence" rather than failing the analysis run.
 """
+
 from __future__ import annotations
 
 import logging

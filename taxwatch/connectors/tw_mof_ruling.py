@@ -2,6 +2,7 @@
 
 抓取財政部主管法規查詢系統（law-out.mof.gov.tw）的解釋函令。
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -29,6 +30,7 @@ class TwMofRulingConnector(Connector):
                 params={"type": "E", "id": "FL000001"},
             )
             from taxwatch.connectors._tw_html_parser import parse_ruling_list
+
             refs = parse_ruling_list(resp.text, base)
         except Exception:
             pass

@@ -2,6 +2,7 @@
 
 Aligns provisions by node_key and produces structured diffs.
 """
+
 from __future__ import annotations
 
 import difflib
@@ -40,16 +41,18 @@ def diff_provisions(
         if old_p.text == new_p.text:
             continue
         unified = _unified_diff(old_p.text, new_p.text, key)
-        diffs.append(ProvisionDiff(
-            node_key=key,
-            change_type="modified",
-            old_heading=old_p.heading,
-            new_heading=new_p.heading,
-            old_text=old_p.text,
-            new_text=new_p.text,
-            diff_text=unified,
-            similarity=_similarity(old_p.text, new_p.text),
-        ))
+        diffs.append(
+            ProvisionDiff(
+                node_key=key,
+                change_type="modified",
+                old_heading=old_p.heading,
+                new_heading=new_p.heading,
+                old_text=old_p.text,
+                new_text=new_p.text,
+                diff_text=unified,
+                similarity=_similarity(old_p.text, new_p.text),
+            )
+        )
 
     removed_keys = old_keys - new_keys
     added_keys = new_keys - old_keys
@@ -65,38 +68,44 @@ def diff_provisions(
         added_keys.discard(new_key)
         old_p, new_p = old_map[old_key], new_map[new_key]
         unified = _unified_diff(old_p.text, new_p.text, f"{old_key} → {new_key}")
-        diffs.append(ProvisionDiff(
-            node_key=new_key,
-            change_type="renumbered",
-            old_heading=f"{old_p.heading} (was {old_key})",
-            new_heading=new_p.heading,
-            old_text=old_p.text,
-            new_text=new_p.text,
-            diff_text=unified,
-            similarity=sim,
-        ))
+        diffs.append(
+            ProvisionDiff(
+                node_key=new_key,
+                change_type="renumbered",
+                old_heading=f"{old_p.heading} (was {old_key})",
+                new_heading=new_p.heading,
+                old_text=old_p.text,
+                new_text=new_p.text,
+                diff_text=unified,
+                similarity=sim,
+            )
+        )
 
     for key in sorted(removed_keys):
         p = old_map[key]
-        diffs.append(ProvisionDiff(
-            node_key=key,
-            change_type="removed",
-            old_heading=p.heading,
-            old_text=p.text,
-            diff_text=f"--- {key}\n(entire provision removed)",
-            similarity=0.0,
-        ))
+        diffs.append(
+            ProvisionDiff(
+                node_key=key,
+                change_type="removed",
+                old_heading=p.heading,
+                old_text=p.text,
+                diff_text=f"--- {key}\n(entire provision removed)",
+                similarity=0.0,
+            )
+        )
 
     for key in sorted(added_keys):
         p = new_map[key]
-        diffs.append(ProvisionDiff(
-            node_key=key,
-            change_type="added",
-            new_heading=p.heading,
-            new_text=p.text,
-            diff_text=f"+++ {key}\n(new provision)",
-            similarity=0.0,
-        ))
+        diffs.append(
+            ProvisionDiff(
+                node_key=key,
+                change_type="added",
+                new_heading=p.heading,
+                new_text=p.text,
+                diff_text=f"+++ {key}\n(new provision)",
+                similarity=0.0,
+            )
+        )
 
     return diffs
 
@@ -105,7 +114,10 @@ def _unified_diff(old_text: str, new_text: str, label: str) -> str:
     old_lines = old_text.splitlines(keepends=True)
     new_lines = new_text.splitlines(keepends=True)
     diff = difflib.unified_diff(
-        old_lines, new_lines, fromfile=f"old/{label}", tofile=f"new/{label}",
+        old_lines,
+        new_lines,
+        fromfile=f"old/{label}",
+        tofile=f"new/{label}",
     )
     return "".join(diff)
 

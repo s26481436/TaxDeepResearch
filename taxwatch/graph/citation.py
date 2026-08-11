@@ -13,6 +13,7 @@ China legal citations:
 
 Regex covers the majority of cases; LLM fallback handles free-form references.
 """
+
 from __future__ import annotations
 
 import re
@@ -48,20 +49,14 @@ _CN_WENHAO = (
 _PATTERNS: list[tuple[re.Pattern, str, str]] = [
     # --- TW: 依據/授權 (must come before generic law article to win priority) ---
     (
-        re.compile(
-            r"(?:依|依據|按|按照)\s*"
-            + _LAW_NAME
-            + r"第\s*(\d+(?:-\d+)?(?:之\d+)?)\s*條"
-        ),
+        re.compile(r"(?:依|依據|按|按照)\s*" + _LAW_NAME + r"第\s*(\d+(?:-\d+)?(?:之\d+)?)\s*條"),
         "authority_of",
         "regex",
     ),
     # TW: 修正/修改
     (
         re.compile(
-            r"(?:修正|修改|增訂|刪除)\s*"
-            + _LAW_NAME
-            + r"第\s*(\d+(?:-\d+)?(?:之\d+)?)\s*條"
+            r"(?:修正|修改|增訂|刪除)\s*" + _LAW_NAME + r"第\s*(\d+(?:-\d+)?(?:之\d+)?)\s*條"
         ),
         "amends",
         "regex",
@@ -151,7 +146,9 @@ _PATTERNS: list[tuple[re.Pattern, str, str]] = [
     # CN: 法律条文引用 (with or without 书名号《》)
     (
         re.compile(
-            r"(?:《)?" r"(" + _CN_LAW_NAME + r")" r"(?:》)?"
+            r"(?:《)?"
+            r"(" + _CN_LAW_NAME + r")"
+            r"(?:》)?"
             r"第(\d+)条"
             r"(?:第(\d+)款)?"
         ),
@@ -194,13 +191,15 @@ def extract_citations(text: str) -> list[Citation]:
                 continue
             seen.add(dedup_key)
 
-            citations.append(Citation(
-                raw_text=raw,
-                entity_key=entity_key,
-                relation_type=relation_type,
-                confidence=1.0,
-                extracted_by=method,
-            ))
+            citations.append(
+                Citation(
+                    raw_text=raw,
+                    entity_key=entity_key,
+                    relation_type=relation_type,
+                    confidence=1.0,
+                    extracted_by=method,
+                )
+            )
 
     return citations
 
@@ -263,12 +262,24 @@ def _match_to_entity_key(match: re.Match, relation_type: str) -> str:
 def _clean_law_name(name: str) -> str:
     """Strip leading verb prefixes that regex may capture before the actual law name."""
     prefixes = [
-        "依據", "依据", "依照", "依", "按照", "按",
-        "根据", "修正", "修改", "修订", "增訂", "刪除",
-        "删除", "废止", "查",
+        "依據",
+        "依据",
+        "依照",
+        "依",
+        "按照",
+        "按",
+        "根据",
+        "修正",
+        "修改",
+        "修订",
+        "增訂",
+        "刪除",
+        "删除",
+        "废止",
+        "查",
     ]
     for p in sorted(prefixes, key=len, reverse=True):
         if name.startswith(p):
-            name = name[len(p):]
+            name = name[len(p) :]
             break
     return name.strip()

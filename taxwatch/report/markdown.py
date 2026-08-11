@@ -1,4 +1,5 @@
 """Generate Markdown change reports."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -61,8 +62,10 @@ def _build_report(session: Session, changes: list[Change], days: int) -> str:
         by_country.setdefault(country, []).append(ch)
 
     severity_order = {
-        Severity.CRITICAL: 0, Severity.MAJOR: 1,
-        Severity.MINOR: 2, Severity.COSMETIC: 3,
+        Severity.CRITICAL: 0,
+        Severity.MAJOR: 1,
+        Severity.MINOR: 2,
+        Severity.COSMETIC: 3,
     }
 
     for country, country_changes in sorted(by_country.items()):
@@ -90,7 +93,9 @@ def _build_report(session: Session, changes: list[Change], days: int) -> str:
                 lines.append(f"- 信心度：{analysis.confidence:.0%}")
 
             if ch.diff_text:
-                lines.append(f"\n<details><summary>Diff</summary>\n\n```diff\n{ch.diff_text}\n```\n</details>\n")
+                lines.append(
+                    f"\n<details><summary>Diff</summary>\n\n```diff\n{ch.diff_text}\n```\n</details>\n"
+                )
 
             lines.append("---\n")
 

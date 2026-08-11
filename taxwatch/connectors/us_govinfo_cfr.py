@@ -20,6 +20,7 @@ fetch()    — downloads the XML volume.
 Note: for real-time amendment tracking, prefer us_ecfr which tracks individual
 section amendments as they happen. This connector is best for annual bulk ingestion.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -27,7 +28,9 @@ from datetime import datetime
 from taxwatch.connectors.base import Connector, DocumentRef, RawDocument
 from taxwatch.connectors.http import create_client, fetch_with_retry
 
-_BULK_URL = "https://www.govinfo.gov/bulkdata/CFR/{year}/title-{title}/CFR-{year}-title{title}-vol{vol}.xml"
+_BULK_URL = (
+    "https://www.govinfo.gov/bulkdata/CFR/{year}/title-{title}/CFR-{year}-title{title}-vol{vol}.xml"
+)
 _DEFAULT_YEAR = "2025"
 _DEFAULT_TITLE = "26"
 _MAX_VOL_PROBE = 30  # probe up to this volume number
@@ -62,20 +65,22 @@ class UsGovinfoConnector(Connector):
             last_modified_str = resp.headers.get("last-modified", "")
             issued_at = _parse_http_date(last_modified_str)
 
-            refs.append(DocumentRef(
-                external_id=f"CFR-{year}-title{title}-vol{vol}",
-                title=f"{year} CFR Title {title} Vol. {vol}",
-                doc_type="regulation",
-                url=url,
-                issued_at=issued_at,
-                metadata={
-                    "year": year,
-                    "cfr_title": title,
-                    "volume": vol,
-                    "jurisdiction": "US-federal",
-                    "download_url": url,
-                },
-            ))
+            refs.append(
+                DocumentRef(
+                    external_id=f"CFR-{year}-title{title}-vol{vol}",
+                    title=f"{year} CFR Title {title} Vol. {vol}",
+                    doc_type="regulation",
+                    url=url,
+                    issued_at=issued_at,
+                    metadata={
+                        "year": year,
+                        "cfr_title": title,
+                        "volume": vol,
+                        "jurisdiction": "US-federal",
+                        "download_url": url,
+                    },
+                )
+            )
 
         return refs
 
@@ -96,6 +101,7 @@ def _parse_http_date(s: str) -> datetime | None:
     if not s:
         return None
     import email.utils
+
     try:
         t = email.utils.parsedate_to_datetime(s)
         return t.replace(tzinfo=None)

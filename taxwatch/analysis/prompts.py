@@ -1,4 +1,5 @@
 """Prompt templates for tax law change analysis."""
+
 from __future__ import annotations
 
 SYSTEM_PROMPT = """\

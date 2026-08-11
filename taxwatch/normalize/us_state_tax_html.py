@@ -9,10 +9,11 @@ same ProvisionData output:
 
 Supported states: CA, TX, FL, WA, IL, NY (+ generic HTML fallback).
 """
+
 from __future__ import annotations
 
 import re
-from typing import Callable
+from collections.abc import Callable
 
 from bs4 import BeautifulSoup, Tag
 
@@ -27,6 +28,7 @@ def _state_parser(state: str):
     def decorator(fn):
         _PARSERS[state] = fn
         return fn
+
     return decorator
 
 
@@ -63,6 +65,7 @@ class UsStateTaxHtmlNormalizer(Normalizer):
 # California — leginfo.legislature.ca.gov
 # ---------------------------------------------------------------------------
 
+
 @_state_parser("CA")
 def _parse_ca(soup: BeautifulSoup, meta: dict) -> list[ProvisionData]:
     section = meta.get("section", "")
@@ -72,21 +75,25 @@ def _parse_ca(soup: BeautifulSoup, meta: dict) -> list[ProvisionData]:
     if not body:
         return []
 
-    text_parts = [normalize_text(_el_text(el)) for el in body.select("p, div.section-text, .lawtext") if _el_text(el)]
+    selectors = "p, div.section-text, .lawtext"
+    text_parts = [normalize_text(_el_text(el)) for el in body.select(selectors) if _el_text(el)]
     full_text = "\n".join(text_parts) or normalize_text(_el_text(body))
 
     if not full_text.strip():
         return []
-    return [ProvisionData(
-        node_key=f"CA:{code}-{section}",
-        heading=f"{code} § {section}",
-        text=full_text.strip(),
-    )]
+    return [
+        ProvisionData(
+            node_key=f"CA:{code}-{section}",
+            heading=f"{code} § {section}",
+            text=full_text.strip(),
+        )
+    ]
 
 
 # ---------------------------------------------------------------------------
 # Texas — statutes.capitol.texas.gov
 # ---------------------------------------------------------------------------
+
 
 @_state_parser("TX")
 def _parse_tx(soup: BeautifulSoup, meta: dict) -> list[ProvisionData]:
@@ -109,26 +116,31 @@ def _parse_tx(soup: BeautifulSoup, meta: dict) -> list[ProvisionData]:
         sec_match = re.search(r"Sec\.?\s*([\d.]+[A-Z]?)", heading)
         sec_no = sec_match.group(1) if sec_match else chapter
 
-        provisions.append(ProvisionData(
-            node_key=f"TX:{code}-{sec_no}",
-            heading=heading or f"Ch. {chapter}",
-            text="\n".join(body_parts).strip(),
-        ))
+        provisions.append(
+            ProvisionData(
+                node_key=f"TX:{code}-{sec_no}",
+                heading=heading or f"Ch. {chapter}",
+                text="\n".join(body_parts).strip(),
+            )
+        )
 
     if not provisions:
         body = soup.body
         if body:
-            provisions.append(ProvisionData(
-                node_key=f"TX:{code}-{chapter}",
-                heading=f"Texas Tax Code Ch. {chapter}",
-                text=normalize_text(_el_text(body)),
-            ))
+            provisions.append(
+                ProvisionData(
+                    node_key=f"TX:{code}-{chapter}",
+                    heading=f"Texas Tax Code Ch. {chapter}",
+                    text=normalize_text(_el_text(body)),
+                )
+            )
     return provisions
 
 
 # ---------------------------------------------------------------------------
 # Florida — flsenate.gov
 # ---------------------------------------------------------------------------
+
 
 @_state_parser("FL")
 def _parse_fl(soup: BeautifulSoup, meta: dict) -> list[ProvisionData]:
@@ -144,26 +156,31 @@ def _parse_fl(soup: BeautifulSoup, meta: dict) -> list[ProvisionData]:
         sec_no = sec_match.group(1) if sec_match else chapter
 
         if body.strip():
-            provisions.append(ProvisionData(
-                node_key=f"FL:{code}-{sec_no}",
-                heading=heading or f"Ch. {chapter}",
-                text=body,
-            ))
+            provisions.append(
+                ProvisionData(
+                    node_key=f"FL:{code}-{sec_no}",
+                    heading=heading or f"Ch. {chapter}",
+                    text=body,
+                )
+            )
 
     if not provisions:
         body_node = soup.select_one("div#siteContent, div.content") or soup.body
         if body_node:
-            provisions.append(ProvisionData(
-                node_key=f"FL:{code}-{chapter}",
-                heading=f"Florida Statutes Ch. {chapter}",
-                text=normalize_text(_el_text(body_node)),
-            ))
+            provisions.append(
+                ProvisionData(
+                    node_key=f"FL:{code}-{chapter}",
+                    heading=f"Florida Statutes Ch. {chapter}",
+                    text=normalize_text(_el_text(body_node)),
+                )
+            )
     return provisions
 
 
 # ---------------------------------------------------------------------------
 # Washington — apps.leg.wa.gov WAC
 # ---------------------------------------------------------------------------
+
 
 @_state_parser("WA")
 def _parse_wa(soup: BeautifulSoup, meta: dict) -> list[ProvisionData]:
@@ -179,26 +196,31 @@ def _parse_wa(soup: BeautifulSoup, meta: dict) -> list[ProvisionData]:
         sec_no = sec_match.group(1) if sec_match else chapter
 
         if body.strip():
-            provisions.append(ProvisionData(
-                node_key=f"WA:{code}-{sec_no}",
-                heading=heading or chapter,
-                text=body,
-            ))
+            provisions.append(
+                ProvisionData(
+                    node_key=f"WA:{code}-{sec_no}",
+                    heading=heading or chapter,
+                    text=body,
+                )
+            )
 
     if not provisions:
         body_node = soup.select_one("div#ctl00_ContentPlaceHolder1_panelText") or soup.body
         if body_node:
-            provisions.append(ProvisionData(
-                node_key=f"WA:{code}-{chapter}",
-                heading=f"WAC {chapter}",
-                text=normalize_text(_el_text(body_node)),
-            ))
+            provisions.append(
+                ProvisionData(
+                    node_key=f"WA:{code}-{chapter}",
+                    heading=f"WAC {chapter}",
+                    text=normalize_text(_el_text(body_node)),
+                )
+            )
     return provisions
 
 
 # ---------------------------------------------------------------------------
 # Illinois — ilga.gov
 # ---------------------------------------------------------------------------
+
 
 @_state_parser("IL")
 def _parse_il(soup: BeautifulSoup, meta: dict) -> list[ProvisionData]:
@@ -214,26 +236,31 @@ def _parse_il(soup: BeautifulSoup, meta: dict) -> list[ProvisionData]:
         sec_no = sec_match.group(1) if sec_match else act_id
 
         if body.strip():
-            provisions.append(ProvisionData(
-                node_key=f"IL:{code}-{sec_no}",
-                heading=heading or f"Act {act_id}",
-                text=body,
-            ))
+            provisions.append(
+                ProvisionData(
+                    node_key=f"IL:{code}-{sec_no}",
+                    heading=heading or f"Act {act_id}",
+                    text=body,
+                )
+            )
 
     if not provisions:
         body_node = soup.select_one("div#content") or soup.body
         if body_node:
-            provisions.append(ProvisionData(
-                node_key=f"IL:{code}-{act_id}",
-                heading=f"35 ILCS Act {act_id}",
-                text=normalize_text(_el_text(body_node)),
-            ))
+            provisions.append(
+                ProvisionData(
+                    node_key=f"IL:{code}-{act_id}",
+                    heading=f"35 ILCS Act {act_id}",
+                    text=normalize_text(_el_text(body_node)),
+                )
+            )
     return provisions
 
 
 # ---------------------------------------------------------------------------
 # New York — nysenate.gov
 # ---------------------------------------------------------------------------
+
 
 @_state_parser("NY")
 def _parse_ny(soup: BeautifulSoup, meta: dict) -> list[ProvisionData]:
@@ -249,20 +276,24 @@ def _parse_ny(soup: BeautifulSoup, meta: dict) -> list[ProvisionData]:
         sec_no = sec_match.group(1) if sec_match else article
 
         if body.strip():
-            provisions.append(ProvisionData(
-                node_key=f"NY:{code}-{sec_no}",
-                heading=heading or f"Article {article}",
-                text=body,
-            ))
+            provisions.append(
+                ProvisionData(
+                    node_key=f"NY:{code}-{sec_no}",
+                    heading=heading or f"Article {article}",
+                    text=body,
+                )
+            )
 
     if not provisions:
         body_node = soup.select_one("div.law-text, main") or soup.body
         if body_node:
-            provisions.append(ProvisionData(
-                node_key=f"NY:{code}-Art{article}",
-                heading=f"NY Tax Law Article {article}",
-                text=normalize_text(_el_text(body_node)),
-            ))
+            provisions.append(
+                ProvisionData(
+                    node_key=f"NY:{code}-Art{article}",
+                    heading=f"NY Tax Law Article {article}",
+                    text=normalize_text(_el_text(body_node)),
+                )
+            )
     return provisions
 
 
@@ -270,17 +301,20 @@ def _parse_ny(soup: BeautifulSoup, meta: dict) -> list[ProvisionData]:
 # Generic fallback
 # ---------------------------------------------------------------------------
 
+
 def _parse_generic(soup: BeautifulSoup, meta: dict) -> list[ProvisionData]:
     state = meta.get("state", "US")
     external_id = meta.get("external_id", "")
     body_node = soup.select_one("main, article, div#content, div.content") or soup.body
     if not body_node:
         return []
-    return [ProvisionData(
-        node_key=f"{state}:{external_id}",
-        heading=_html_title(soup) or external_id,
-        text=normalize_text(_el_text(body_node)),
-    )]
+    return [
+        ProvisionData(
+            node_key=f"{state}:{external_id}",
+            heading=_html_title(soup) or external_id,
+            text=normalize_text(_el_text(body_node)),
+        )
+    ]
 
 
 def _html_title(soup: BeautifulSoup) -> str:

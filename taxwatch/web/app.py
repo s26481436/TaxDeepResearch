@@ -4,6 +4,7 @@ Mounts the JSON API alongside server-rendered pages so a single process
 serves both. Page handlers call the service layer directly — no internal
 HTTP round-trip.
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -32,7 +33,9 @@ for _router in ALL_ROUTERS:
 @app.on_event("startup")
 def _startup():
     from taxwatch.db import init_db
+
     init_db()
+
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.filters["severity_class"] = lambda s: {
@@ -91,8 +94,9 @@ def tax_type_detail(
     try:
         summary = tax_types_svc.get_summary(session, tax_key, recent_days=days)
     except tax_types_svc.TaxTypeNotFound:
-        return _page(request, "not_found.html", active="tax-types",
-                     message=f"找不到稅種：{tax_key}")
+        return _page(
+            request, "not_found.html", active="tax-types", message=f"找不到稅種：{tax_key}"
+        )
     finally:
         session.close()
     return _page(request, "tax_detail.html", active="tax-types", days=days, summary=summary)
@@ -112,9 +116,7 @@ def documents_page(
             active="documents",
             country=country,
             tax_key=tax_key,
-            documents=documents_svc.list_documents(
-                session, country=country, tax_key=tax_key
-            ),
+            documents=documents_svc.list_documents(session, country=country, tax_key=tax_key),
         )
     finally:
         session.close()
@@ -148,8 +150,9 @@ def document_history_page(
             compare_to=compare_to,
         )
     except (documents_svc.DocumentNotFound, documents_svc.SnapshotNotFound) as exc:
-        return _page(request, "not_found.html", active="documents",
-                     message=f"找不到法規版本：{exc}")
+        return _page(
+            request, "not_found.html", active="documents", message=f"找不到法規版本：{exc}"
+        )
     finally:
         session.close()
 
@@ -175,8 +178,12 @@ def changes_page(
             tax_key=tax_key,
             severity=severity,
             changes=dashboard_svc.list_changes(
-                session, days=days, country=country,
-                tax_key=tax_key, severity=severity, limit=200,
+                session,
+                days=days,
+                country=country,
+                tax_key=tax_key,
+                severity=severity,
+                limit=200,
             ),
         )
     finally:
@@ -189,8 +196,9 @@ def change_detail_page(request: Request, change_id: int) -> HTMLResponse:
     try:
         detail = dashboard_svc.get_change_detail(session, change_id)
     except dashboard_svc.ChangeNotFound:
-        return _page(request, "not_found.html", active="changes",
-                     message=f"找不到異動 #{change_id}")
+        return _page(
+            request, "not_found.html", active="changes", message=f"找不到異動 #{change_id}"
+        )
     finally:
         session.close()
     return _page(request, "change_detail.html", active="changes", change=detail)

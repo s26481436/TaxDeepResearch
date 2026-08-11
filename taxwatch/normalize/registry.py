@@ -1,4 +1,5 @@
 """Map connector keys to their normalizers."""
+
 from __future__ import annotations
 
 from taxwatch.normalize.base import Normalizer

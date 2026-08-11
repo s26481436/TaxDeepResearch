@@ -1,4 +1,5 @@
 """Tests for text normalization."""
+
 from taxwatch.normalize.text import normalize_text
 
 

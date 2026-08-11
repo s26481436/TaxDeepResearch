@@ -1,4 +1,5 @@
 """Tax-type rollups — the "what is the current state of each 稅種" view."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -23,16 +24,19 @@ def list_tax_types(session: Session, *, recent_days: int = 7) -> list[dict[str, 
 
     for doc, source in _documents_with_sources(session):
         tax_type = classify_doc(doc.title, doc.external_id)
-        bucket = buckets.setdefault(tax_type.key, {
-            "key": tax_type.key,
-            "name": tax_type.name_zh,
-            "countries": set(),
-            "document_count": 0,
-            "version_count": 0,
-            "recent_changes": 0,
-            "critical_changes": 0,
-            "last_updated": None,
-        })
+        bucket = buckets.setdefault(
+            tax_type.key,
+            {
+                "key": tax_type.key,
+                "name": tax_type.name_zh,
+                "countries": set(),
+                "document_count": 0,
+                "version_count": 0,
+                "recent_changes": 0,
+                "critical_changes": 0,
+                "last_updated": None,
+            },
+        )
 
         bucket["countries"].add(source.country)
         bucket["document_count"] += 1
@@ -62,13 +66,15 @@ def list_tax_types(session: Session, *, recent_days: int = 7) -> list[dict[str, 
     rows: list[dict[str, Any]] = []
     for bucket in buckets.values():
         last = bucket.pop("last_updated")
-        rows.append({
-            **bucket,
-            "countries": sorted(bucket["countries"]),
-            "last_updated": last.isoformat() if last else None,
-            "days_since_update": (now - last).days if last else None,
-            "status": _status(bucket["recent_changes"], bucket["critical_changes"]),
-        })
+        rows.append(
+            {
+                **bucket,
+                "countries": sorted(bucket["countries"]),
+                "last_updated": last.isoformat() if last else None,
+                "days_since_update": (now - last).days if last else None,
+                "status": _status(bucket["recent_changes"], bucket["critical_changes"]),
+            }
+        )
 
     rows.sort(key=lambda r: (-r["recent_changes"], r["name"]))
     return rows
@@ -108,21 +114,24 @@ def get_summary(
         if latest and (latest_overall is None or latest.fetched_at > latest_overall):
             latest_overall = latest.fetched_at
 
-        documents.append({
-            "external_id": doc.external_id,
-            "title": doc.title,
-            "url": doc.url,
-            "doc_type": doc.doc_type.value,
-            "country": source.country,
-            "source_key": source.key,
-            "version_count": len(snapshots),
-            "provision_count": (
-                session.query(ProvisionNode).filter_by(snapshot_id=latest.id).count()
-                if latest else 0
-            ),
-            "first_seen": snapshots[-1].fetched_at.isoformat() if snapshots else None,
-            "last_updated": latest.fetched_at.isoformat() if latest else None,
-        })
+        documents.append(
+            {
+                "external_id": doc.external_id,
+                "title": doc.title,
+                "url": doc.url,
+                "doc_type": doc.doc_type.value,
+                "country": source.country,
+                "source_key": source.key,
+                "version_count": len(snapshots),
+                "provision_count": (
+                    session.query(ProvisionNode).filter_by(snapshot_id=latest.id).count()
+                    if latest
+                    else 0
+                ),
+                "first_seen": snapshots[-1].fetched_at.isoformat() if snapshots else None,
+                "last_updated": latest.fetched_at.isoformat() if latest else None,
+            }
+        )
 
         rows = (
             session.query(Change, Analysis)
@@ -134,19 +143,21 @@ def get_summary(
         for change, analysis in rows:
             if analysis is not None:
                 confidence_values.append(analysis.confidence)
-            changes.append({
-                "id": change.id,
-                "document_title": doc.title,
-                "external_id": doc.external_id,
-                "node_key": change.node_key,
-                "change_type": change.change_type.value,
-                "severity": change.severity.value,
-                "detected_at": change.detected_at.isoformat(),
-                "summary": analysis.summary_zh if analysis else "",
-                "effective_date": analysis.effective_date if analysis else "",
-                "affected_parties": analysis.affected_parties if analysis else [],
-                "confidence": analysis.confidence if analysis else None,
-            })
+            changes.append(
+                {
+                    "id": change.id,
+                    "document_title": doc.title,
+                    "external_id": doc.external_id,
+                    "node_key": change.node_key,
+                    "change_type": change.change_type.value,
+                    "severity": change.severity.value,
+                    "detected_at": change.detected_at.isoformat(),
+                    "summary": analysis.summary_zh if analysis else "",
+                    "effective_date": analysis.effective_date if analysis else "",
+                    "affected_parties": analysis.affected_parties if analysis else [],
+                    "confidence": analysis.confidence if analysis else None,
+                }
+            )
 
     if not documents:
         raise TaxTypeNotFound(tax_key)
@@ -166,7 +177,8 @@ def get_summary(
             "analysed_count": len(confidence_values),
             "average_confidence": (
                 round(sum(confidence_values) / len(confidence_values), 3)
-                if confidence_values else None
+                if confidence_values
+                else None
             ),
         },
         "documents": documents,
@@ -175,11 +187,7 @@ def get_summary(
 
 
 def _documents_with_sources(session: Session) -> list[tuple[Document, Source]]:
-    return (
-        session.query(Document, Source)
-        .join(Source, Document.source_id == Source.id)
-        .all()
-    )
+    return session.query(Document, Source).join(Source, Document.source_id == Source.id).all()
 
 
 def _status(recent: int, critical: int) -> str:

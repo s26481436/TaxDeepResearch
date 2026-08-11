@@ -1,4 +1,5 @@
 """Query the reference corpus: 文號 lookup, text search, official labels."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -182,15 +183,15 @@ def stats(session: Session) -> list[dict]:
                 if v
             }
         )
-        out.append({
-            "corpus_key": key,
-            "corpus_version": versions[-1] if versions else "",
-            "documents": base.count(),
-            "with_document_number": base.filter(
-                CorpusDocument.document_number != ""
-            ).count(),
-            "repealed": base.filter(
-                or_(CorpusDocument.aging == "全文废止", CorpusDocument.aging == "全文失效")
-            ).count(),
-        })
+        out.append(
+            {
+                "corpus_key": key,
+                "corpus_version": versions[-1] if versions else "",
+                "documents": base.count(),
+                "with_document_number": base.filter(CorpusDocument.document_number != "").count(),
+                "repealed": base.filter(
+                    or_(CorpusDocument.aging == "全文废止", CorpusDocument.aging == "全文失效")
+                ).count(),
+            }
+        )
     return out
