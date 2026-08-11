@@ -36,19 +36,24 @@ class CnChinataxConnector(Connector):
     def _base_url(self) -> str:
         return self.source_config.get("base_url", "https://www.chinatax.gov.cn")
 
+    # Paths that serve static HTML article pages (not redirected to fgk SPA).
+    # None keywords = accept all articles on that path (no keyword filter).
+    _ACCESSIBLE_PATHS: list[tuple[str, list[str] | None]] = [
+        ("/chinatax/n810219/n810724/index.html", None),  # 税务新闻 (policy press releases)
+        ("/chinatax/n810341/n810755/index.html", None),  # 税收法规
+    ]
+
     def discover(self, since: datetime | None = None) -> list[DocumentRef]:
         client = create_client(timeout=60, headers={"Accept-Charset": "utf-8"})
         base = self._base_url()
         refs: list[DocumentRef] = []
 
-        list_paths = self.source_config.get(
-            "list_paths",
-            [
-                "/chinatax/n810341/n810755/index.html",  # 税收法规
-                "/chinatax/n810341/n810765/index.html",  # 税务部门规章
-                "/chinatax/n810341/n810825/index.html",  # 规范性文件
-            ],
-        )
+        path_entries = self.source_config.get("list_paths", None)
+        # list_paths in config may be a plain list of paths; convert to (path, None) pairs
+        if path_entries is not None:
+            entries: list[tuple[str, list[str] | None]] = [(p, None) for p in path_entries]
+        else:
+            entries = self._ACCESSIBLE_PATHS
 
         keywords = self.source_config.get(
             "keywords",
@@ -66,14 +71,19 @@ class CnChinataxConnector(Connector):
                 "加计扣除",
                 "留抵退税",
                 "出口退税",
+                "税收",
+                "纳税",
+                "退税",
             ],
         )
 
-        for path in list_paths:
+        for path, path_kw in entries:
+            # None means no keyword filter for this path
+            effective_kw = path_kw if path_kw is not None else keywords
             try:
                 resp = fetch_with_retry(client, f"{base}{path}")
                 html = resp.content.decode("utf-8", errors="replace")
-                page_refs = self._parse_list_page(html, base, keywords)
+                page_refs = self._parse_list_page(html, base, effective_kw)
                 refs.extend(page_refs)
             except Exception:
                 continue
@@ -115,7 +125,7 @@ class CnChinataxConnector(Connector):
         self,
         html: str,
         base_url: str,
-        keywords: list[str],
+        keywords: list[str] | None,
     ) -> list[DocumentRef]:
         soup = BeautifulSoup(html, "html.parser")
         refs: list[DocumentRef] = []
@@ -125,10 +135,14 @@ class CnChinataxConnector(Connector):
             if not title or len(title) < 4:
                 continue
 
-            if keywords and not any(kw in title for kw in keywords):
+            href = link["href"]
+            # Skip nav links, search links, and non-article pages
+            if not href or "/content.html" not in href:
                 continue
 
-            href = link["href"]
+            if keywords is not None and not any(kw in title for kw in keywords):
+                continue
+
             if not href.startswith("http"):
                 if href.startswith("/"):
                     href = f"{base_url}{href}"
