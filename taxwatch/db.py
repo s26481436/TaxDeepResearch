@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import taxwatch.models as _models_module
+from taxwatch.models import Base
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -28,19 +28,36 @@ def get_session() -> Session:
     return get_session_factory()()
 
 
+_db_initialized = False
+
+
 def init_db():
-    """Create schema (if configured) and all tables."""
+    """Create schema (if configured) and all tables.
+
+    Safe to call multiple times — skips work after the first successful call.
+    """
+    global _db_initialized
+    if _db_initialized:
+        return
+
     settings = get_settings()
     schema = settings.db_schema.strip() or None
-
-    # Re-build Base with the correct schema so all Table definitions pick it up.
-    _models_module.Base = _models_module._make_base(schema)
 
     engine = get_engine()
 
     if schema:
         with engine.connect() as conn:
             conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+            conn.execute(text(f'SET search_path TO "{schema}", public'))
             conn.commit()
+        # Set search_path for all future connections from this engine.
+        from sqlalchemy import event
 
-    _models_module.Base.metadata.create_all(engine)
+        @event.listens_for(engine, "connect")
+        def set_search_path(dbapi_conn, connection_record):
+            cursor = dbapi_conn.cursor()
+            cursor.execute(f'SET search_path TO "{schema}", public')
+            cursor.close()
+
+    Base.metadata.create_all(engine)
+    _db_initialized = True
