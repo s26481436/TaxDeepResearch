@@ -25,6 +25,19 @@ class DocumentNotFound(LookupError):
     """Raised when no document matches the requested identifier."""
 
 
+class AmbiguousDocument(LookupError):
+    """Raised when a partial title matches more than one document.
+
+    Carries the candidates so the caller can show them rather than making
+    someone guess which spelling the crawler stored.
+    """
+
+    def __init__(self, term: str, candidates: list[str]):
+        super().__init__(term)
+        self.term = term
+        self.candidates = candidates
+
+
 class SnapshotNotFound(LookupError):
     """Raised when a document has no snapshot for the requested date."""
 
@@ -42,12 +55,61 @@ class VersionEntry:
 
 
 def find_document(session: Session, external_id: str) -> Document:
+    """Resolve a document from an external id, a full title, or part of one.
+
+    The external ids the crawlers mint are opaque (`c5251620`, a 文號), so
+    nobody types them from memory. Accepting a distinctive fragment of the
+    title — 增值税法 for 中华人民共和国增值税法 — is what makes the CLI usable
+    at all, and an ambiguous fragment reports the candidates rather than
+    silently picking one.
+    """
     doc = session.query(Document).filter_by(external_id=external_id).first()
-    if doc is None:
-        doc = session.query(Document).filter(Document.title == external_id).first()
-    if doc is None:
-        raise DocumentNotFound(external_id)
-    return doc
+    if doc is not None:
+        return doc
+
+    doc = session.query(Document).filter(Document.title == external_id).first()
+    if doc is not None:
+        return doc
+
+    term = external_id.strip()
+    if term:
+        matches = session.query(Document).filter(Document.title.contains(term)).all()
+        if len(matches) == 1:
+            return matches[0]
+        if matches:
+            raise AmbiguousDocument(term, sorted(d.title for d in matches))
+
+    raise DocumentNotFound(external_id)
+
+
+def suggest_documents(session: Session, term: str, *, limit: int = 10) -> list[dict[str, Any]]:
+    """Documents whose title or id looks like what someone was reaching for.
+
+    Used to turn a bare "not found" into something actionable.
+    """
+    query = session.query(Document, Source).join(Source, Document.source_id == Source.id)
+    term = term.strip()
+    if term:
+        # Any single character of a Chinese law name is a strong hint; falling
+        # back to the whole term first keeps the obvious matches on top.
+        query = query.filter(Document.title.contains(term) | Document.external_id.contains(term))
+    rows = query.limit(limit).all()
+    if not rows and term:
+        rows = (
+            session.query(Document, Source)
+            .join(Source, Document.source_id == Source.id)
+            .limit(limit)
+            .all()
+        )
+    return [
+        {
+            "external_id": doc.external_id,
+            "title": doc.title,
+            "country": source.country,
+            "source_key": source.key,
+        }
+        for doc, source in rows
+    ]
 
 
 def list_documents(

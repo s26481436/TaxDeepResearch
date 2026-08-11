@@ -156,12 +156,19 @@ LLM 讀取**合併檢視**（母法條文＋各條的子法／公告補充）後
 無法靠讀 diff 關閉的標記，只會訓練覆核者忽略標記。
 
 ```bash
-taxwatch extract-requirements cn-vat-law --dry-run   # 先看會抽出什麼
-taxwatch extract-requirements cn-vat-law
+taxwatch documents --country CN                       # 先看有哪些法規可抽
+
+# 引數接受 external_id、完整標題，或標題片段（片段撞到多份會列出候選）
+taxwatch extract-requirements 中华人民共和国增值税法 --dry-run
+taxwatch extract-requirements 中华人民共和国增值税法
+
 pip install -e '.[xlsx]'                              # 匯入 .xlsx 需要
 taxwatch import-requirements 申報規範.xlsx           # 匯入財務既有試算表
 taxwatch review-queue                                 # 列出待覆核欄位
 ```
+
+> 抓取器產生的 external_id 是機器編號（`c5251620`、文號），沒有人記得住，
+> 所以指令一律也接受標題片段。`taxwatch documents` 列出目前收錄了什麼。
 
 ## Web Dashboard
 
@@ -275,7 +282,7 @@ BRAVE_SEARCH_MAX_RESULTS=5
 ## 開發
 
 ```bash
-pytest              # 373 tests
+pytest              # 387 tests
 ruff check .
 ```
 

@@ -109,3 +109,83 @@ def test_list_documents_filters(session, seeded):
     assert svc.list_documents(session, country="TW") == []
     assert svc.list_documents(session, tax_key="enterprise_income")
     assert svc.list_documents(session, tax_key="vat") == []
+
+
+class TestFindDocumentByFragment:
+    """The crawler mints opaque ids (c5251620, a 文號); nobody types those.
+
+    Accepting a distinctive fragment of the title is what makes the CLI usable,
+    and an ambiguous fragment must report the candidates rather than silently
+    picking whichever row came back first.
+    """
+
+    @pytest.fixture
+    def cn_docs(self, session):
+        from taxwatch.models import DocType, Source
+        from taxwatch.models import Document as Doc
+
+        source = Source(key="cn-chinatax", country="CN", connector="cn_chinatax")
+        session.add(source)
+        session.flush()
+        for ext, title, dt in [
+            ("c5251620", "中华人民共和国增值税法", DocType.STATUTE),
+            ("c5251406", "中华人民共和国增值税法实施条例", DocType.REGULATION),
+            ("c5250999", "中华人民共和国消费税法", DocType.STATUTE),
+        ]:
+            session.add(Doc(source_id=source.id, external_id=ext, doc_type=dt, title=title))
+        session.commit()
+        return session
+
+    def test_exact_external_id(self, cn_docs):
+        assert svc.find_document(cn_docs, "c5251620").title == "中华人民共和国增值税法"
+
+    def test_exact_title(self, cn_docs):
+        assert svc.find_document(cn_docs, "中华人民共和国消费税法").external_id == "c5250999"
+
+    def test_unique_fragment(self, cn_docs):
+        assert svc.find_document(cn_docs, "消费税法").external_id == "c5250999"
+
+    def test_ambiguous_fragment_reports_candidates(self, cn_docs):
+        with pytest.raises(svc.AmbiguousDocument) as caught:
+            svc.find_document(cn_docs, "增值税法")
+        assert caught.value.candidates == [
+            "中华人民共和国增值税法",
+            "中华人民共和国增值税法实施条例",
+        ]
+
+    def test_exact_title_wins_over_being_a_prefix_of_another(self, cn_docs):
+        """增值税法 is a substring of its own 实施条例, so an exact title must
+        not be treated as ambiguous."""
+        doc = svc.find_document(cn_docs, "中华人民共和国增值税法")
+        assert doc.external_id == "c5251620"
+
+    def test_unknown_still_raises(self, cn_docs):
+        with pytest.raises(svc.DocumentNotFound):
+            svc.find_document(cn_docs, "cn-vat-law")
+
+
+class TestSuggestDocuments:
+    def test_falls_back_to_listing_everything_when_nothing_matches(self, session):
+        from taxwatch.models import DocType, Source
+        from taxwatch.models import Document as Doc
+
+        source = Source(key="cn-chinatax", country="CN", connector="cn_chinatax")
+        session.add(source)
+        session.flush()
+        session.add(
+            Doc(
+                source_id=source.id,
+                external_id="c1",
+                doc_type=DocType.STATUTE,
+                title="中华人民共和国增值税法",
+            )
+        )
+        session.commit()
+
+        # "cn-vat-law" matches nothing, but the caller still needs something
+        # actionable to show.
+        rows = svc.suggest_documents(session, "cn-vat-law")
+        assert [r["external_id"] for r in rows] == ["c1"]
+
+    def test_empty_database_suggests_nothing(self, session):
+        assert svc.suggest_documents(session, "anything") == []
