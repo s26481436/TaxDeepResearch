@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}{{ req.tax_name }} — {{ req.scenario }}{% endblock %}
+{% block heading %}{{ req.scenario }}{% endblock %}
+{% block subheading %}
+{{ req.tax_name }}{% if req.taxpayer_role %} · {{ req.taxpayer_role }}{% endif %}
+· {{ req.cited_field_count }}/{{ req.field_count }} 欄位有條文依據
+{%- if req.fields_needing_review %} · <strong>{{ req.fields_needing_review }} 欄待覆核</strong>{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="crumb">
+  <a href="/requirements">申報規範</a> / {{ req.tax_name }} / {{ req.scenario }}
+</div>
+
+<div class="panel">
+  <div class="panel-hd">
+    <h2>來源</h2>
+    {% if req.source_document %}
+    <a class="btn ghost" href="/documents/{{ req.source_document.external_id | urlencode }}/consolidated">合併檢視</a>
+    {% endif %}
+  </div>
+  <div class="panel-bd">
+    {% if req.source_document %}
+    <p>依據《{{ req.source_document.title }}》及其子法／公告抽取。</p>
+    {% else %}
+    <p style="color:var(--muted)">未記錄來源法規（可能為試算表匯入）。</p>
+    {% endif %}
+    <p style="font-size:12.5px;color:var(--muted);margin-top:8px">
+      {% if req.model %}模型 {{ req.model }} · prompt {{ req.prompt_version }}{% endif %}
+    </p>
+  </div>
+</div>
+
+{% for f in req['fields'] %}
+<div class="panel" id="{{ f.field_key }}">
+  <div class="panel-hd">
+    <h2>{{ f.label }}</h2>
+    <span>
+      {% if f.needs_review %}<span class="badge badge-major">待覆核</span>{% endif %}
+      {% if f.source == 'manual' %}<span class="tag">人工確認</span>
+      {% elif f.source == 'import' %}<span class="tag">試算表匯入</span>
+      {% elif f.source == 'llm' %}<span class="tag">LLM 抽取</span>{% endif %}
+      {% if f.confidence is not none and f.citations %}
+      <span class="tag">信心 {{ (f.confidence * 100) | round | int }}%</span>
+      {% endif %}
+      {% if not f.derivable %}<span class="tag" title="法條無直接對應，法規異動時不會自動標記">人工判斷</span>{% endif %}
+    </span>
+  </div>
+  <div class="panel-bd">
+    {% if f.missing %}
+    <p style="color:var(--muted)">未填寫。</p>
+    {% else %}
+
+    {% if f.needs_review %}
+    <div class="alert">
+      {{ f.review_reason }}
+      {% if f.change %}<a href="/changes/{{ f.change.id }}">查看 {{ f.change.node_key }} 的異動 →</a>{% endif %}
+    </div>
+    {% endif %}
+
+    <div class="{{ 'mono' if f.monospace }}" style="white-space:pre-wrap;line-height:1.7">{{ f.value }}</div>
+
+    {% if f.citations %}
+    <div class="cites">
+      <div class="cites-hd">條文依據</div>
+      {% for c in f.citations %}
+      <div class="cite">
+        <span class="tag">{{ c.node_key }}</span>
+        {% if c.title %}<span style="color:var(--muted)">{{ c.title }}</span>{% endif %}
+        {% if c.quote %}<div class="quote">{{ c.quote }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p style="margin-top:12px;font-size:12.5px;color:var(--muted)">
+      ⚠️ 此欄位無條文依據，內容未經來源驗證。
+    </p>
+    {% endif %}
+
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+
+<style>
+  .alert {
+    padding:10px 12px; margin-bottom:12px; border-radius:6px;
+    background:rgba(220,150,40,.12); border-left:3px solid #d9922a; font-size:13px;
+  }
+  .cites { margin-top:14px; padding-top:12px; border-top:1px solid var(--line); }
+  .cites-hd { font-size:12px; color:var(--muted); margin-bottom:8px; letter-spacing:.04em; }
+  .cite { margin-bottom:10px; font-size:13px; }
+  .quote {
+    margin-top:4px; padding:8px 10px; border-left:2px solid var(--line);
+    color:var(--muted); white-space:pre-wrap; font-size:12.5px; line-height:1.6;
+  }
+</style>
+{% endblock %}
