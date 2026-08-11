@@ -76,3 +76,30 @@ def test_leaves_a_current_schema_untouched(tmp_path):
         for table in inspect(engine).get_table_names()
     }
     assert before == after
+
+
+class TestSchemaConnectArgs:
+    """`search_path` must be set during connection setup, not after.
+
+    A `connect` event listener runs after SQLAlchemy has already resolved
+    `dialect.default_schema_name`, so the dialect records `public` and every
+    later `get_table_names()` reads the wrong schema — a populated database
+    reports as empty.
+    """
+
+    def test_postgres_url_gets_the_search_path_option(self):
+        from taxwatch.db import _schema_connect_args
+
+        args = _schema_connect_args("postgresql+psycopg://u@h/db", "taxwatch_prod")
+        assert args == {"connect_args": {"options": "-csearch_path=taxwatch_prod,public"}}
+
+    def test_no_schema_configured_adds_nothing(self):
+        from taxwatch.db import _schema_connect_args
+
+        assert _schema_connect_args("postgresql+psycopg://u@h/db", "") == {}
+
+    def test_non_postgres_backend_is_left_alone(self):
+        """SQLite has no search_path, and libpq options would break the connect."""
+        from taxwatch.db import _schema_connect_args
+
+        assert _schema_connect_args("sqlite:///x.db", "taxwatch_prod") == {}

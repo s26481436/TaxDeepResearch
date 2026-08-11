@@ -291,6 +291,133 @@ def review_queue(
 
 
 @app.command()
+def doctor(
+    fix: bool = typer.Option(False, help="嘗試建立缺少的資料表與欄位"),
+):
+    """診斷「relation does not exist」這類資料庫／版本不一致問題。
+
+    印出實際生效的設定、連到哪個資料庫、search_path 落在哪個 schema，
+    以及執行中的程式碼期待哪些資料表、資料庫實際有哪些。這些對不上時，
+    問題幾乎都在其中之一：跑的是舊的已安裝副本、連到別的資料庫，
+    或資料表建在另一個 schema。
+    """
+    from pathlib import Path
+
+    from sqlalchemy import inspect, text
+
+    import taxwatch
+    from taxwatch.config import get_settings
+    from taxwatch.db import get_engine, get_session
+    from taxwatch.models import Base
+
+    settings = get_settings()
+
+    typer.echo("\n=== 執行中的程式碼 ===")
+    typer.echo(f"  套件位置    {Path(taxwatch.__file__).parent}")
+    typer.echo(f"  Python      {sys.executable}")
+    # An editable install points into the working tree; a plain `pip install .`
+    # copies into site-packages, where `git pull` never reaches it.
+    in_site_packages = "site-packages" in str(Path(taxwatch.__file__).resolve())
+    install = (
+        "複製到 site-packages（git pull 不會更新）" if in_site_packages else "editable／原始碼目錄"
+    )
+    typer.echo(f"  安裝方式    {install}")
+
+    typer.echo("\n=== 資料庫連線 ===")
+    typer.echo(f"  DATABASE_URL  {_redact(settings.database_url)}")
+    typer.echo(f"  DB_SCHEMA     {settings.db_schema or '(未設定，使用 public)'}")
+
+    engine = get_engine()
+    try:
+        session = get_session()
+        with session.connection() as conn:
+            server = conn.execute(text("SELECT version()")).scalar() or ""
+            current_db = conn.execute(text("SELECT current_database()")).scalar()
+            search_path = conn.execute(text("SHOW search_path")).scalar()
+            current_schema = conn.execute(text("SELECT current_schema()")).scalar()
+        session.close()
+    except Exception as exc:
+        typer.echo(f"  ✗ 無法連線：{type(exc).__name__}: {exc}")
+        raise typer.Exit(1) from None
+
+    typer.echo(f"  已連線        {server.split(',')[0]}")
+    typer.echo(f"  current_database  {current_db}")
+    typer.echo(f"  search_path       {search_path}")
+    typer.echo(f"  current_schema    {current_schema}")
+
+    expected = set(Base.metadata.tables)
+    inspector = inspect(engine)
+    actual = set(inspector.get_table_names())
+    missing = sorted(expected - actual)
+
+    typer.echo(f"\n=== 資料表（於 schema {current_schema}）===")
+    typer.echo(f"  程式碼期待  {len(expected)}")
+    typer.echo(f"  資料庫實際  {len(actual & expected)}")
+
+    if missing:
+        typer.echo(f"  ✗ 缺少 {len(missing)}：{', '.join(missing)}")
+        # A table living in another schema is the classic search_path symptom;
+        # saying so beats letting someone re-run migrations that already ran.
+        elsewhere = _tables_in_other_schemas(inspector, missing, current_schema)
+        for table, schemas in elsewhere.items():
+            typer.echo(f"    · {table} 其實存在於 schema：{', '.join(schemas)}")
+        if elsewhere:
+            typer.echo("    → search_path 指向的 schema 與資料表所在的不同，請檢查 DB_SCHEMA")
+    else:
+        typer.echo("  ✓ 全部存在")
+
+    missing_columns = _missing_columns(inspector, expected & actual)
+    if missing_columns:
+        typer.echo(f"\n  ✗ 缺少欄位：{'; '.join(missing_columns)}")
+
+    if (missing or missing_columns) and fix:
+        from taxwatch.db import init_db as _init_db
+
+        typer.echo("\n=== 建立缺少的資料表與欄位 ===")
+        _init_db()
+        remaining = set(Base.metadata.tables) - set(inspect(engine).get_table_names())
+        typer.echo("  ✓ 完成" if not remaining else f"  ✗ 仍缺少：{sorted(remaining)}")
+    elif missing or missing_columns:
+        typer.echo("\n  以 --fix 建立缺少的項目（或重新啟動 taxwatch serve）")
+
+
+def _redact(url: str) -> str:
+    import re
+
+    return re.sub(r"://([^:/@]+):[^@]*@", r"://\1:***@", url)
+
+
+def _tables_in_other_schemas(inspector, missing: list[str], current: str) -> dict[str, list[str]]:
+    found: dict[str, list[str]] = {}
+    try:
+        schemas = [s for s in inspector.get_schema_names() if s != current]
+    except Exception:
+        return found
+    for schema in schemas:
+        try:
+            names = set(inspector.get_table_names(schema=schema))
+        except Exception:
+            continue
+        for table in missing:
+            if table in names:
+                found.setdefault(table, []).append(schema)
+    return found
+
+
+def _missing_columns(inspector, tables: set[str]) -> list[str]:
+    from taxwatch.models import Base
+
+    gaps: list[str] = []
+    for name in sorted(tables):
+        table = Base.metadata.tables[name]
+        present = {c["name"] for c in inspector.get_columns(name)}
+        absent = [c.name for c in table.columns if c.name not in present]
+        if absent:
+            gaps.append(f"{name}.{{{','.join(absent)}}}")
+    return gaps
+
+
+@app.command()
 def serve(
     host: str = typer.Option("0.0.0.0", help="Bind address"),
     port: int = typer.Option(8000, help="Port to listen on"),
