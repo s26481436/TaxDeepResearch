@@ -119,7 +119,7 @@ def _read_rows(path: str | Path, sheet: str | int) -> list[list[str]]:
     try:
         from openpyxl import load_workbook
     except ImportError as exc:  # pragma: no cover - depends on optional extra
-        raise MissingDependency("Reading .xlsx needs openpyxl: pip install -e '.[corpus]'") from exc
+        raise MissingDependency("Reading .xlsx needs openpyxl: pip install -e '.[xlsx]'") from exc
 
     workbook = load_workbook(filename=str(path), read_only=True, data_only=True)
     worksheet = workbook[sheet] if isinstance(sheet, str) else workbook.worksheets[sheet]

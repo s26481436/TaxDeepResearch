@@ -146,6 +146,7 @@ LLM 讀取**合併檢視**（母法條文＋各條的子法／公告補充）後
 ```bash
 taxwatch extract-requirements cn-vat-law --dry-run   # 先看會抽出什麼
 taxwatch extract-requirements cn-vat-law
+pip install -e '.[xlsx]'                              # 匯入 .xlsx 需要
 taxwatch import-requirements 申報規範.xlsx           # 匯入財務既有試算表
 taxwatch review-queue                                 # 列出待覆核欄位
 ```
@@ -262,7 +263,7 @@ BRAVE_SEARCH_MAX_RESULTS=5
 ## 開發
 
 ```bash
-pytest              # 352 tests
+pytest              # 364 tests
 ruff check .
 ```
 
