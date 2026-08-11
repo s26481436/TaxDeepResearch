@@ -16,6 +16,7 @@
 <div class="panel">
   <div class="panel-hd">
     <h2>版本比對</h2>
+    <a class="btn ghost" href="/documents/{{ history.external_id | urlencode }}/consolidated">合併檢視（含子法）</a>
     {% if history.url %}<a class="btn ghost" href="{{ history.url }}" target="_blank" rel="noopener">原文連結 ↗</a>{% endif %}
   </div>
   <div class="panel-bd">

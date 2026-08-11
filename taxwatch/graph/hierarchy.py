@@ -128,6 +128,64 @@ def register_document_hierarchy(
     )
 
 
+# A 依据 clause carries weight only where a document declares its authority —
+# the opening provisions. Later on, 「根据……」 is ordinary argument, and
+# promoting those would make every statute a parent of every 公告 citing it.
+_AUTHORITY_SCAN_PROVISIONS = 3
+
+
+def promote_declared_authority(
+    session: Session,
+    document: Document,
+    doc_entity_key: str,
+    provisions: list[Any],
+) -> list[LegalRelation]:
+    """Attach a 公告/规定 to the statute its opening clause names.
+
+    公告 and 部门规章 don't announce their parent in their title the way an
+    实施条例 does — 「国家税务总局关于电池消费税征收管理有关事项的公告」 names a
+    topic, not a law. What they do have is 第1條: 「根据《消费税法》…的规定，现将…
+    公告如下」. That clause is the hierarchy edge, and it lives in the text.
+
+    Citation extraction already finds it, but records it against the *provision*
+    (公告#1 → 消费税法). The document itself stays an orphan until that authority
+    is promoted to document level, which is what this does.
+    """
+    from taxwatch.graph.citation import extract_citations
+    from taxwatch.graph.relations import upsert_relation
+    from taxwatch.graph.resolver import normalize_entity_key
+
+    self_key = normalize_entity_key(doc_entity_key)
+    relations: list[LegalRelation] = []
+    seen: set[str] = set()
+
+    for prov in provisions[:_AUTHORITY_SCAN_PROVISIONS]:
+        for cit in extract_citations(prov.text, self_key=self_key):
+            if cit.relation_type != "authority_of":
+                continue
+            # The authority is the law, not the article — a 公告 issued under
+            # 消费税法第4条 still sits under 消费税法 in the hierarchy.
+            parent_key = normalize_entity_key(cit.entity_key).split("#", 1)[0]
+            if not parent_key or parent_key == self_key or parent_key in seen:
+                continue
+            seen.add(parent_key)
+            relations.append(
+                upsert_relation(
+                    session,
+                    from_key=self_key,
+                    to_key=parent_key,
+                    relation_type=RelationType.AUTHORITY_OF,
+                    # Lower than a title-derived link: an opening clause can
+                    # name several statutes, and only one is the true parent.
+                    confidence=0.8,
+                    evidence_text=cit.raw_text,
+                    extracted_by=ExtractionMethod.REGEX,
+                )
+            )
+
+    return relations
+
+
 def parent_aliases(parent_key: str | None) -> tuple[str, ...]:
     """Deictic names a child document may use for `parent_key`."""
     return _PARENT_ALIASES if parent_key else ()

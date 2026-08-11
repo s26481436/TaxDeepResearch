@@ -18,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 from taxwatch.api.routes import ALL_ROUTERS
 from taxwatch.config import load_sources
 from taxwatch.db import get_session
+from taxwatch.services import consolidated as consolidated_svc
 from taxwatch.services import dashboard as dashboard_svc
 from taxwatch.services import documents as documents_svc
 from taxwatch.services import tax_types as tax_types_svc
@@ -153,6 +154,23 @@ def document_history_page(
         return _page(
             request, "not_found.html", active="documents", message=f"找不到法規版本：{exc}"
         )
+    finally:
+        session.close()
+
+
+@app.get("/documents/{external_id}/consolidated", response_class=HTMLResponse)
+def document_consolidated_page(request: Request, external_id: str) -> HTMLResponse:
+    """The statute as it currently reads, with implementing provisions inline."""
+    session = get_session()
+    try:
+        return _page(
+            request,
+            "document_consolidated.html",
+            active="documents",
+            view=consolidated_svc.get_consolidated(session, external_id),
+        )
+    except documents_svc.DocumentNotFound as exc:
+        return _page(request, "not_found.html", active="documents", message=f"找不到法規：{exc}")
     finally:
         session.close()
 

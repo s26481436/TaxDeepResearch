@@ -200,3 +200,21 @@ def test_both_apps_expose_the_same_api_surface():
         }
 
     assert api_paths(api_app) == api_paths(web_app.app)
+
+
+def test_consolidated_page_renders(client):
+    resp = client.get("/documents/cn-enterprise-income-tax-law/consolidated")
+    assert resp.status_code == 200
+    assert "合併檢視" in resp.text
+
+
+def test_consolidated_page_unknown_document(client):
+    resp = client.get("/documents/nope/consolidated")
+    assert resp.status_code == 200
+    assert "找不到法規" in resp.text
+
+
+def test_consolidated_api(client):
+    body = client.get("/api/documents/cn-enterprise-income-tax-law/consolidated").json()
+    assert body["title"] == "中华人民共和国企业所得税法"
+    assert body["statistics"]["article_count"] == 3
