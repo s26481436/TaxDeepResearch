@@ -13,6 +13,7 @@ from taxwatch.connectors.registry import get_connector
 from taxwatch.diff.classify import classify_severity
 from taxwatch.diff.engine import diff_provisions
 from taxwatch.graph.citation import extract_citations
+from taxwatch.graph.hierarchy import derive_parent_key, register_document_hierarchy
 from taxwatch.graph.relations import store_citations
 from taxwatch.models import (
     Change,
@@ -151,8 +152,18 @@ def execute_pipeline(
             continue
 
         # Stage: graph
+        doc_key = _document_entity_key(normalized, doc)
+        register_document_hierarchy(session, doc, doc_key)
+        parent_key = derive_parent_key(doc_key)
+
         for prov in normalized.provisions:
-            citations = extract_citations(prov.text)
+            # Deictic references (本法第14條) only resolve if we tell the
+            # extractor which law this document is a child of.
+            citations = extract_citations(
+                prov.text,
+                parent_key=parent_key,
+                self_key=doc_key,
+            )
             if citations:
                 store_citations(session, prov.node_key, citations)
 
@@ -224,6 +235,22 @@ def _ensure_document(session: Session, source: Source, ref: Any) -> Document:
         session.add(doc)
         session.flush()
     return doc
+
+
+def _document_entity_key(normalized: Any, doc: Document) -> str:
+    """The graph key standing for the document as a whole.
+
+    Taken from the provisions' own keys rather than the title, so the document
+    node and its article nodes share a stem — otherwise 增值税法实施条例 and
+    增值税法实施条例#3 would be unrelated entities.
+    """
+    from taxwatch.graph.resolver import normalize_entity_key
+
+    for prov in normalized.provisions:
+        stem = prov.node_key.split("#", 1)[0].strip()
+        if stem:
+            return normalize_entity_key(stem)
+    return normalize_entity_key(normalized.title or doc.title or doc.external_id)
 
 
 def _save_raw(raw: Any, source_key: str):

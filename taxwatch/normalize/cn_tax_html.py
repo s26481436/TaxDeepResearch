@@ -15,62 +15,10 @@ import re
 
 from bs4 import BeautifulSoup
 
+from taxwatch.cn_numerals import to_arabic
 from taxwatch.connectors.base import RawDocument
 from taxwatch.normalize.base import NormalizedDoc, Normalizer, ProvisionData
 from taxwatch.normalize.text import normalize_text
-
-_CN_NUM_MAP = {
-    "一": "1",
-    "二": "2",
-    "三": "3",
-    "四": "4",
-    "五": "5",
-    "六": "6",
-    "七": "7",
-    "八": "8",
-    "九": "9",
-    "十": "10",
-    "十一": "11",
-    "十二": "12",
-    "十三": "13",
-    "十四": "14",
-    "十五": "15",
-    "十六": "16",
-    "十七": "17",
-    "十八": "18",
-    "十九": "19",
-    "二十": "20",
-    "二十一": "21",
-    "二十二": "22",
-    "二十三": "23",
-    "二十四": "24",
-    "二十五": "25",
-    "二十六": "26",
-    "二十七": "27",
-    "二十八": "28",
-    "二十九": "29",
-    "三十": "30",
-    "三十一": "31",
-    "三十二": "32",
-    "三十三": "33",
-    "三十四": "34",
-    "三十五": "35",
-    "三十六": "36",
-    "三十七": "37",
-    "三十八": "38",
-    "三十九": "39",
-    "四十": "40",
-    "四十一": "41",
-    "四十二": "42",
-    "四十三": "43",
-    "四十四": "44",
-    "四十五": "45",
-    "四十六": "46",
-    "四十七": "47",
-    "四十八": "48",
-    "四十九": "49",
-    "五十": "50",
-}
 
 
 class CnTaxHtmlNormalizer(Normalizer):
@@ -135,7 +83,7 @@ class CnTaxHtmlNormalizer(Normalizer):
 
     def _split_by_tiao(self, text: str, doc_key: str) -> list[ProvisionData]:
         """Split by 第X条 pattern (formal laws and regulations)."""
-        pattern = r"(第[一二三四五六七八九十百]+条)"
+        pattern = r"(第[一二三四五六七八九十百千零〇两]+条)"
         parts = re.split(pattern, text)
 
         if len(parts) < 3:
@@ -176,8 +124,7 @@ class CnTaxHtmlNormalizer(Normalizer):
         while i < len(parts) - 1:
             cn_num = parts[i].strip()
             body = parts[i + 1].strip()
-            num = _CN_NUM_MAP.get(cn_num, cn_num)
-            node_key = f"{doc_key}#{num}"
+            node_key = f"{doc_key}#{to_arabic(cn_num)}"
             provisions.append(
                 ProvisionData(
                     node_key=node_key,
@@ -192,11 +139,10 @@ class CnTaxHtmlNormalizer(Normalizer):
 
 def _cn_article_to_num(heading: str) -> str:
     """Convert 第二十三条 to '23'."""
-    m = re.search(r"第([一二三四五六七八九十百]+)条", heading)
+    m = re.search(r"第([一二三四五六七八九十百千零〇两]+)条", heading)
     if not m:
         return ""
-    cn = m.group(1)
-    return _CN_NUM_MAP.get(cn, cn)
+    return to_arabic(m.group(1))
 
 
 def _extract_law_name(title: str) -> str | None:

@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from taxwatch.graph.citation import Citation
+from taxwatch.graph.hierarchy import get_family
 from taxwatch.graph.resolver import resolve_citation, resolve_entity
 from taxwatch.models import (
     ExtractionMethod,
@@ -140,11 +141,24 @@ def get_entity_context(session: Session, entity_key: str) -> dict[str, Any] | No
             )
             siblings.extend(sibling_rels)
 
+    # An article inherits its document's 子母法 position: a change to
+    # 增值税法实施条例#3 is a change under 增值税法, even though the article node
+    # itself carries no hierarchy edge.
+    family = get_family(session, normalized)
+    if "#" in normalized:
+        document_family = get_family(session, normalized.split("#", 1)[0])
+        family = {
+            "parents": family["parents"] or document_family["parents"],
+            "children": family["children"] or document_family["children"],
+        }
+
     return {
         "entity": entity,
         "parent_laws": parent_rels,
         "children": child_rels,
         "siblings": siblings,
+        "parent_documents": family["parents"],
+        "child_documents": family["children"],
     }
 
 

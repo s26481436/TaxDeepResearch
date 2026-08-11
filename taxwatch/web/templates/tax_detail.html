@@ -37,9 +37,13 @@
             <th class="num">版本</th><th>首次收錄</th><th>最後更新</th></tr>
       </thead>
       <tbody>
-        {% for d in summary.documents %}
+        {% for d in summary.document_tree %}
         <tr>
-          <td><a href="/documents/{{ d.external_id | urlencode }}"><strong>{{ d.title }}</strong></a></td>
+          <td style="padding-left:{{ 12 + d.depth * 22 }}px">
+            {%- if d.depth -%}<span style="color:var(--muted);margin-right:6px" title="施行法規">└</span>{%- endif -%}
+            <a href="/documents/{{ d.external_id | urlencode }}"><strong>{{ d.title }}</strong></a>
+            {%- if d.child_count %} <span class="tag" title="附屬施行法規數">子法 {{ d.child_count }}</span>{% endif -%}
+          </td>
           <td><span class="tag">{{ d.doc_type }}</span></td>
           <td>{{ d.country }}</td>
           <td class="num">{{ d.provision_count }}</td>

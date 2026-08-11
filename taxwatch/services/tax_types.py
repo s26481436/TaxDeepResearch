@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from taxwatch.corpus.store import make_classifier
+from taxwatch.graph.hierarchy import build_forest, entity_key_for_title, flatten_forest
 from taxwatch.models import Analysis, Change, Document, ProvisionNode, Snapshot, Source
 from taxwatch.taxonomy import UNCLASSIFIED
 
@@ -165,6 +166,10 @@ def get_summary(
     changes.sort(key=lambda c: c["detected_at"], reverse=True)
     documents.sort(key=lambda d: d["last_updated"] or "", reverse=True)
 
+    # An implementing regulation is its parent statute's operative detail, not a
+    # peer sitting next to it — present them as one subtree.
+    forest = build_forest(documents, key_of=lambda d: entity_key_for_title(d["title"]))
+
     return {
         "key": tax_key,
         "name": tax_name or UNCLASSIFIED.name_zh,
@@ -172,6 +177,7 @@ def get_summary(
         "last_updated": latest_overall.isoformat() if latest_overall else None,
         "statistics": {
             "document_count": len(documents),
+            "root_document_count": len(forest),
             "version_count": sum(d["version_count"] for d in documents),
             "change_count": len(changes),
             "analysed_count": len(confidence_values),
@@ -182,6 +188,7 @@ def get_summary(
             ),
         },
         "documents": documents,
+        "document_tree": flatten_forest(forest),
         "changes": changes,
     }
 
