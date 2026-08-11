@@ -108,6 +108,18 @@ citation 抽取會同時建立母法引用與廢止關係。
 > 本專案沒有 Alembic；`init_db()` 會在 `create_all` 之後補上模型新增的 nullable 欄位
 > （僅限新增可空欄位，其餘變更仍需真正的 migration）。舊資料庫可直接升級，不必重爬。
 
+### 診斷資料庫問題
+
+看到 `relation "..." does not exist` 時：
+
+```bash
+taxwatch doctor         # 印出實際連到哪、search_path 在哪個 schema、缺哪些表與欄位
+taxwatch doctor --fix   # 建立缺少的資料表與欄位
+```
+
+會一併指出兩個常見陷阱：套件是 `pip install .` 複製到 site-packages（`git pull` 更新不到），
+以及資料表其實建在另一個 schema（`DB_SCHEMA` 設定不一致）。
+
 ## 申報規範（申報基準線）
 
 異動偵測回答「什麼變了」，這一層回答財務真正的問題：**那我們現在要怎麼申報**。
@@ -263,7 +275,7 @@ BRAVE_SEARCH_MAX_RESULTS=5
 ## 開發
 
 ```bash
-pytest              # 364 tests
+pytest              # 373 tests
 ruff check .
 ```
 

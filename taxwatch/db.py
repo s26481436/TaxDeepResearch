@@ -17,8 +17,31 @@ _session_factory: sessionmaker[Session] | None = None
 def get_engine():
     global _engine
     if _engine is None:
-        _engine = create_engine(get_settings().database_url, echo=False)
+        settings = get_settings()
+        _engine = create_engine(
+            settings.database_url,
+            echo=False,
+            **_schema_connect_args(settings.database_url, settings.db_schema.strip()),
+        )
     return _engine
+
+
+def _schema_connect_args(url: str, schema: str) -> dict:
+    """Put the configured schema on the connection string itself.
+
+    Setting `search_path` from a `connect` event listener looks equivalent but
+    runs too late: SQLAlchemy resolves `dialect.default_schema_name` while
+    establishing the very first connection, so it records `public` and every
+    later `get_table_names()` reads the wrong schema — reporting a fully
+    populated database as empty. Passing it as a libpq option applies it during
+    connection setup, before the dialect looks.
+
+    Naming a schema that does not exist yet is legal in PostgreSQL — it is
+    ignored until created — so this is safe ahead of `CREATE SCHEMA`.
+    """
+    if not schema or not url.startswith("postgresql"):
+        return {}
+    return {"connect_args": {"options": f"-csearch_path={schema},public"}}
 
 
 def get_session_factory() -> sessionmaker[Session]:
@@ -51,24 +74,14 @@ def init_db():
     if expected <= _initialized_tables:
         return
 
-    settings = get_settings()
-    schema = settings.db_schema.strip() or None
-
+    schema = get_settings().db_schema.strip()
     engine = get_engine()
 
+    # get_engine() already points connections at the schema; it just may not
+    # exist yet on a first run.
     if schema:
-        with engine.connect() as conn:
+        with engine.begin() as conn:
             conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
-            conn.execute(text(f'SET search_path TO "{schema}", public'))
-            conn.commit()
-        # Set search_path for all future connections from this engine.
-        from sqlalchemy import event
-
-        @event.listens_for(engine, "connect")
-        def set_search_path(dbapi_conn, connection_record):
-            cursor = dbapi_conn.cursor()
-            cursor.execute(f'SET search_path TO "{schema}", public')
-            cursor.close()
 
     Base.metadata.create_all(engine)
     _add_missing_columns(engine)
