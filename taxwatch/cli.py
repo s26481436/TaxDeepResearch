@@ -189,11 +189,21 @@ def extract_requirements(
     tax_key: str = typer.Option("", help="稅種鍵，留空則從標題推斷"),
     dry_run: bool = typer.Option(False, help="只顯示會抽出什麼，不寫入資料庫"),
 ):
-    """從法規條文（含子法與公告）抽取申報規範。"""
+    """從法規條文（含子法與公告）抽取申報規範。
+
+    DOCUMENT 可以是 external_id、完整標題，或標題的一段（例如「增值税法」）。
+    """
+    from openai import APIError
+
+    from taxwatch.config import get_settings
     from taxwatch.db import get_session
     from taxwatch.db import init_db as _init_db
     from taxwatch.requirements.extract import NoSourceDocument, extract_for_document
-    from taxwatch.services.documents import DocumentNotFound
+    from taxwatch.services.documents import (
+        AmbiguousDocument,
+        DocumentNotFound,
+        suggest_documents,
+    )
 
     _init_db()
     session = get_session()
@@ -205,8 +215,35 @@ def extract_requirements(
             tax_key=tax_key or None,
             dry_run=dry_run,
         )
-    except (DocumentNotFound, NoSourceDocument) as exc:
-        typer.echo(f"無法抽取：{exc}")
+    except AmbiguousDocument as exc:
+        typer.echo(f"「{exc.term}」對應到多份法規，請指定其中一份：")
+        for title in exc.candidates:
+            typer.echo(f"  · {title}")
+        raise typer.Exit(1) from None
+    except DocumentNotFound:
+        # A bare "not found" is useless when the ids are machine-minted
+        # (c5251620, 文號) and nobody can guess one.
+        typer.echo(f"找不到法規：{document}")
+        candidates = suggest_documents(session, document)
+        if candidates:
+            typer.echo("\n已收錄的法規（可用 external_id 或標題片段）：")
+            for c in candidates:
+                typer.echo(f"  [{c['country']}] {c['external_id']:<28} {c['title']}")
+            typer.echo("\n完整清單：taxwatch documents")
+        else:
+            typer.echo("\n資料庫裡還沒有任何法規，請先執行：taxwatch run --source cn-chinatax")
+        raise typer.Exit(1) from None
+    except NoSourceDocument as exc:
+        typer.echo(f"這份法規沒有已解析的條文，無法抽取：{exc}")
+        raise typer.Exit(1) from None
+    except APIError as exc:
+        # A stack trace from inside the OpenAI SDK tells the reader nothing
+        # about the one thing they can act on: their LLM settings.
+        settings = get_settings()
+        typer.echo(f"LLM 呼叫失敗：{type(exc).__name__}")
+        typer.echo(f"  LLM_BASE_URL  {settings.llm_base_url}")
+        typer.echo(f"  LLM_MODEL     {settings.llm_model}")
+        typer.echo("  請確認服務已啟動、位址正確，且 .env 的 LLM_* 設定無誤。")
         raise typer.Exit(1) from None
     finally:
         session.close()
@@ -288,6 +325,47 @@ def review_queue(
         role = f" / {item['taxpayer_role']}" if item["taxpayer_role"] else ""
         typer.echo(f"[{item['tax_name']}] {item['scenario']}{role}")
         typer.echo(f"  {item['field_label']}: {item['reason']}")
+
+
+@app.command()
+def documents(
+    country: str = typer.Option("", help="只看單一轄區，例如 CN／TW／US"),
+    search: str = typer.Option("", help="標題包含此字串"),
+    limit: int = typer.Option(50, help="最多顯示幾筆"),
+):
+    """列出已收錄的法規，以及可用於其他指令的 external_id。"""
+    from taxwatch.db import get_session
+    from taxwatch.db import init_db as _init_db
+    from taxwatch.models import Document, Snapshot, Source
+
+    _init_db()
+    session = get_session()
+    try:
+        query = session.query(Document, Source).join(Source, Document.source_id == Source.id)
+        if country:
+            query = query.filter(Source.country == country.upper())
+        if search:
+            query = query.filter(Document.title.contains(search))
+
+        rows = query.limit(limit).all()
+        if not rows:
+            typer.echo("沒有符合的法規。尚未抓取的話請先執行：taxwatch run --all")
+            return
+
+        typer.echo(f"\n{len(rows)} 份法規\n")
+        for doc, source in rows:
+            provisions = (
+                session.query(Snapshot)
+                .filter_by(document_id=doc.id)
+                .order_by(Snapshot.id.desc())
+                .first()
+            )
+            count = len(provisions.provisions) if provisions else 0
+            typer.echo(f"  [{source.country}] {doc.external_id}")
+            typer.echo(f"        {doc.title}")
+            typer.echo(f"        {doc.doc_type.value} · {count} 條 · {source.key}")
+    finally:
+        session.close()
 
 
 @app.command()
