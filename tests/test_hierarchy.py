@@ -270,3 +270,30 @@ class TestBuildForest:
         )
         assert len(forest) == 1
         assert len(forest[0].children) == 1
+
+
+class TestGreedyLawNameCapture:
+    """A citing document's self-reference must not be glued onto the law it cites.
+
+    「本準則依所得稅法第80條」 captures 本準則依所得稅法 as the law name, which
+    would mint a node named after two instruments at once — reachable from
+    nothing and pointing at nothing.
+    """
+
+    def test_self_reference_is_trimmed_off_the_cited_law(self):
+        cites = extract_citations("本準則依所得稅法第80條第5項規定訂定之。")
+        keys = {c.entity_key for c in cites}
+        assert keys == {"所得稅法#80", "所得稅法#80#5"}
+        assert not any("本準則" in k for k in keys)
+
+    def test_cn_equivalent(self):
+        cites = extract_citations("本条例依增值税法第三十二条的规定制定。")
+        assert not any("本条例依" in c.entity_key for c in cites)
+        assert "增值税法#32" in {c.entity_key for c in cites}
+
+    def test_a_law_name_is_not_truncated_at_a_coincidental_marker(self):
+        """Trimming only applies when what remains still reads as a law name."""
+        from taxwatch.graph.citation import _clean_law_name
+
+        assert _clean_law_name("加值型及非加值型營業稅法") == "加值型及非加值型營業稅法"
+        assert _clean_law_name("所得稅法") == "所得稅法"
