@@ -38,9 +38,10 @@ class CnChinataxConnector(Connector):
 
     # Paths that serve static HTML article pages (not redirected to fgk SPA).
     # None keywords = accept all articles on that path (no keyword filter).
+    # NOTE: n810341/* list pages link to old n367/n362/n377 content URLs which 404;
+    # only the news section (n810219) reliably serves accessible static content.
     _ACCESSIBLE_PATHS: list[tuple[str, list[str] | None]] = [
         ("/chinatax/n810219/n810724/index.html", None),  # 税务新闻 (policy press releases)
-        ("/chinatax/n810341/n810755/index.html", None),  # 税收法规
     ]
 
     def discover(self, since: datetime | None = None) -> list[DocumentRef]:
