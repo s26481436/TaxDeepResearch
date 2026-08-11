@@ -100,12 +100,22 @@ def _build_context_section(session: Session, node_key: str) -> str:
         return ""
 
     parent_texts: list[str] = []
-    for rel, ent in ctx.get("parent_laws", []):
+    for _rel, ent in ctx.get("parent_laws", []):
         parent_texts.append(f"- {ent.canonical_title} ({ent.entity_key})")
+    # The document-level 母法, which an article-level change inherits but whose
+    # own node carries no edge of its own.
+    for ent in ctx.get("parent_documents", []):
+        line = f"- 母法：{ent.canonical_title} ({ent.entity_key})"
+        if line not in parent_texts:
+            parent_texts.append(line)
 
     related: list[str] = []
     for ent in ctx.get("siblings", []):
         related.append(f"- {ent.canonical_title} ({ent.entity_key})")
+    # Implementing regulations that flesh this law out — a change here usually
+    # forces a matching change there, which is the point of flagging them.
+    for ent in ctx.get("child_documents", []):
+        related.append(f"- 子法（施行法規）：{ent.canonical_title} ({ent.entity_key})")
 
     if not parent_texts and not related:
         return ""

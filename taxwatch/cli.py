@@ -98,6 +98,14 @@ def graph_show(
             typer.echo(f"Entity not found: {entity}")
             raise typer.Exit(1)
         typer.echo(f"\n=== {ctx['entity'].canonical_title} ({ctx['entity'].entity_key}) ===\n")
+        if ctx["parent_documents"]:
+            typer.echo("母法 (子母法層級):")
+            for ent in ctx["parent_documents"]:
+                typer.echo(f"  ⇧ {ent.canonical_title} ({ent.entity_key})")
+        if ctx["child_documents"]:
+            typer.echo("子法 (施行細則/實施條例):")
+            for ent in ctx["child_documents"]:
+                typer.echo(f"  ⇩ {ent.canonical_title} ({ent.entity_key})")
         if ctx["parent_laws"]:
             typer.echo("母法:")
             for rel, ent in ctx["parent_laws"]:

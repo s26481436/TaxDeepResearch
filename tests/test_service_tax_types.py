@@ -121,3 +121,43 @@ def test_run_health(session, seeded):
 
 def test_run_health_empty(session):
     assert dash_svc.get_run_health(session)["total"] == 0
+
+
+def test_summary_nests_implementing_regulation_under_its_statute(session, seeded):
+    """子法 belongs inside 母法, not beside it in a flat list."""
+    from datetime import datetime
+
+    from taxwatch.models import DocType
+    from taxwatch.models import Document as DocumentModel
+    from tests.conftest import make_snapshot
+
+    child = DocumentModel(
+        source_id=seeded["source"].id,
+        external_id="cn-eit-implementing-regulation",
+        doc_type=DocType.REGULATION,
+        title="中华人民共和国企业所得税法实施条例",
+        url="https://example.gov.cn/regulation",
+        issued_at=datetime(2020, 6, 1),
+    )
+    session.add(child)
+    session.flush()
+    make_snapshot(
+        session,
+        child,
+        datetime(2020, 6, 1),
+        {"企业所得税法实施条例#92": "企业所得税法第二十八条所称小型微利企业，是指……"},
+        "hash-child",
+    )
+    session.commit()
+
+    summary = svc.get_summary(session, "enterprise_income", recent_days=3650)
+
+    assert summary["statistics"]["document_count"] == 2
+    assert summary["statistics"]["root_document_count"] == 1
+
+    tree = summary["document_tree"]
+    assert [(r["title"], r["depth"]) for r in tree] == [
+        ("中华人民共和国企业所得税法", 0),
+        ("中华人民共和国企业所得税法实施条例", 1),
+    ]
+    assert tree[0]["child_count"] == 1
