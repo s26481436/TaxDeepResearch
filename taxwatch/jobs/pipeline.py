@@ -31,6 +31,7 @@ from taxwatch.models import (
 )
 from taxwatch.normalize.base import ProvisionData
 from taxwatch.normalize.registry import get_normalizer
+from taxwatch.requirements.staleness import flag_stale_fields
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +179,13 @@ def execute_pipeline(
 
         if stop_after == "graph":
             continue
+
+    # Guidance built on a provision that just moved is now suspect. Flag the
+    # affected cells before analysis, so a run that dies mid-analysis still
+    # leaves the compliance matrix honest about what it no longer knows.
+    if all_changes:
+        stale = flag_stale_fields(session, all_changes)
+        stats["stages"]["requirements"] = {"fields_flagged": len(stale)}
 
     session.commit()
 

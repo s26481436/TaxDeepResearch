@@ -12,6 +12,7 @@ from fastapi import APIRouter
 from taxwatch.api.routes.dashboard import router as dashboard_router
 from taxwatch.api.routes.documents import router as documents_router
 from taxwatch.api.routes.entities import router as entities_router
+from taxwatch.api.routes.requirements import router as requirements_router
 from taxwatch.api.routes.runs import router as runs_router
 from taxwatch.api.routes.tax_types import router as tax_types_router
 
@@ -20,6 +21,7 @@ ALL_ROUTERS: list[APIRouter] = [
     documents_router,
     dashboard_router,
     entities_router,
+    requirements_router,
     runs_router,
 ]
 

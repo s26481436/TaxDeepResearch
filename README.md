@@ -108,6 +108,48 @@ citation 抽取會同時建立母法引用與廢止關係。
 > 本專案沒有 Alembic；`init_db()` 會在 `create_all` 之後補上模型新增的 nullable 欄位
 > （僅限新增可空欄位，其餘變更仍需真正的 migration）。舊資料庫可直接升級，不必重爬。
 
+## 申報規範（申報基準線）
+
+異動偵測回答「什麼變了」，這一層回答財務真正的問題：**那我們現在要怎麼申報**。
+就是財務原本用 Excel 維護的那張表——稅率、稅基、計算公式、申報與繳款期限、應備憑證，
+一列對應一個（稅種 × 課稅情境 × 納稅人身分）。
+
+放進系統而不是留在試算表的理由只有一個：**每一格都記錄了它依據哪些條文**。
+條文一動，那一格（而且只有那一格）會被標記待覆核。
+
+```
+增值稅法#32 修正（15日 → 20日）
+    └─ 申報期限 欄位 → 待覆核，附上新舊條文對照
+       稅率 欄位     → 不受影響，維持已覆核
+```
+
+整列標記會讓每次修法都變成全表重審，覆核流程很快就會被忽略；因此是逐格判定。
+
+### 內容從哪來
+
+LLM 讀取**合併檢視**（母法條文＋各條的子法／公告補充）後抽取。只讀母法會得到
+沒有範圍的稅率、沒有程序的期限——操作性內容都在實施條例與公告裡。
+
+三道防線：
+
+1. **引用必須存在。** 模型指向未出現在輸入中的條文時，該引用直接捨棄。
+   模型可以誤讀條文的意思，但不能憑空發明條文。
+2. **無引用即無信心。** 沒有條文依據的格子一律歸零信心並標記待覆核，
+   不與有依據的內容混在一起呈現。
+3. **人寫的贏過機器寫的。** 人工編輯或試算表匯入的格子，重新抽取時不會被覆蓋。
+
+有兩個欄位標記為「人工判斷」，永遠不會被自動標記待覆核：
+「租稅優惠」（「不適用特殊優惠」是從**沒有**條文推出來的結論，沒有任何 diff 能佐證）
+與「徵收管理」（要哪些書表屬於稽徵實務，法條只寫到「向主管稅務機關申報」）。
+無法靠讀 diff 關閉的標記，只會訓練覆核者忽略標記。
+
+```bash
+taxwatch extract-requirements cn-vat-law --dry-run   # 先看會抽出什麼
+taxwatch extract-requirements cn-vat-law
+taxwatch import-requirements 申報規範.xlsx           # 匯入財務既有試算表
+taxwatch review-queue                                 # 列出待覆核欄位
+```
+
 ## Web Dashboard
 
 | 路徑 | 內容 |
@@ -118,6 +160,8 @@ citation 抽取會同時建立母法引用與廢止關係。
 | `/documents` | 法規清單與版本數 |
 | `/documents/{id}` | 版本時間軸 + 任兩版本的條文並排比對 |
 | `/documents/{id}/consolidated` | 合併檢視：母法逐條 + 子法／公告補充規定 |
+| `/requirements` | 申報規範矩陣與待覆核清單 |
+| `/requirements/{id}` | 單一課稅情境的各欄位、條文依據與引用原文 |
 | `/changes` | 異動清單，可依區間／轄區／嚴重度篩選 |
 | `/changes/{id}` | 條文對照、unified diff、LLM 深度分析與引用 |
 | `/runs` | 抓取健康度與失敗稽核 |
@@ -137,6 +181,10 @@ GET  /api/documents/{id}/at/{date}           指定日期的版本
 GET  /api/documents/{id}/diff?from=&to=      任兩日期的條文級 diff
 GET  /api/changes                            異動清單
 GET  /api/changes/{id}                       異動詳情與分析
+GET  /api/requirements                       申報規範清單
+GET  /api/requirements/review                待覆核欄位
+GET  /api/requirements/{id}                  單一情境的完整欄位與引用
+PUT  /api/requirements/{id}/fields/{key}     人工覆核／修正單一欄位
 GET  /api/entities/{key}/context             子母法脈絡
 GET  /api/entities/{key}/impact              影響擴散
 POST /api/runs                               觸發管線
@@ -214,7 +262,7 @@ BRAVE_SEARCH_MAX_RESULTS=5
 ## 開發
 
 ```bash
-pytest              # 327 tests
+pytest              # 352 tests
 ruff check .
 ```
 

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}申報規範{% endblock %}
+{% block heading %}申報規範{% endblock %}
+{% block subheading %}
+{{ requirements | length }} 個課稅情境
+{%- if review.count %} · <strong>{{ review.count }} 個欄位待覆核</strong>{% endif %}
+{% endblock %}
+
+{% block content %}
+
+{% if review.count %}
+<div class="panel">
+  <div class="panel-hd"><h2>待覆核（{{ review.count }}）</h2></div>
+  <div class="panel-bd flush tbl-scroll">
+    <table>
+      <thead>
+        <tr><th>稅種</th><th>課稅情境</th><th>欄位</th><th>原因</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for i in review['items'] %}
+        <tr>
+          <td>{{ i.tax_name }}</td>
+          <td>{{ i.scenario }}{% if i.taxpayer_role %} <span class="tag">{{ i.taxpayer_role }}</span>{% endif %}</td>
+          <td><strong>{{ i.field_label }}</strong></td>
+          <td style="font-size:12.5px;color:var(--muted)">{{ i.reason }}</td>
+          <td>
+            <a class="btn ghost" href="/requirements/{{ i.requirement_id }}#{{ i.field_key }}">覆核</a>
+            {% if i.change_id %}<a class="btn ghost" href="/changes/{{ i.change_id }}">看異動</a>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="panel">
+  <div class="panel-hd"><h2>課稅情境</h2></div>
+  <div class="panel-bd flush tbl-scroll">
+    <table>
+      <thead>
+        <tr><th>稅種</th><th>課稅情境</th><th>納稅人身分</th><th>狀態</th>
+            <th class="num">已填欄位</th><th class="num">有條文依據</th>
+            <th class="num">待覆核</th><th>最後更新</th></tr>
+      </thead>
+      <tbody>
+        {% for r in requirements %}
+        <tr>
+          <td>{{ r.tax_name }}</td>
+          <td><a href="/requirements/{{ r.id }}"><strong>{{ r.scenario }}</strong></a></td>
+          <td>{{ r.taxpayer_role or '—' }}</td>
+          <td>
+            {% if r.status == 'stale' %}<span class="badge badge-major">待覆核</span>
+            {% elif r.status == 'reviewed' %}<span class="badge">已覆核</span>
+            {% else %}<span class="badge badge-muted">草稿</span>{% endif %}
+          </td>
+          <td class="num">{{ r.field_count }}</td>
+          <td class="num">{{ r.cited_field_count }}</td>
+          <td class="num">{{ r.fields_needing_review or '—' }}</td>
+          <td class="mono">{{ r.updated_at | shortdate or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" style="color:var(--muted)">
+          尚無申報規範。執行 <code>taxwatch extract-requirements &lt;法規 ID&gt;</code>
+          從法規抽取，或 <code>taxwatch import-requirements &lt;檔案.xlsx&gt;</code> 匯入試算表。
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<p style="font-size:12.5px;color:var(--muted);margin-top:16px">
+  ⚠️ 內容由 LLM 從法規條文抽取，僅供參考、非法律意見。標示「有條文依據」的欄位可點入
+  查看引用原文；無依據的欄位一律列為待覆核。實際申報請以官方原文與專業意見為準。
+</p>
+{% endblock %}
