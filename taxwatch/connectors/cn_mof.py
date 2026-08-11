@@ -27,8 +27,7 @@ class CnMofConnector(Connector):
         refs: list[DocumentRef] = []
 
         list_paths = self.source_config.get("list_paths", [
-            "/gkml/szs/zhengcefabu/index.htm",  # 税政司政策发布
-            "/gkml/tfs/index.htm",                # 条法司
+            "/zhengwuxinxi/zhengcefabu/",  # 财政部政策发布（税政司文件 szs.mof.gov.cn）
         ])
 
         keywords = self.source_config.get("keywords", [
@@ -38,11 +37,12 @@ class CnMofConnector(Connector):
         ])
 
         for path in list_paths:
+            list_url = f"{base}{path}"
             try:
-                resp = fetch_with_retry(client, f"{base}{path}")
+                resp = fetch_with_retry(client, list_url)
                 encoding = _detect_encoding(resp)
                 html = resp.content.decode(encoding, errors="replace")
-                page_refs = self._parse_list_page(html, base, keywords)
+                page_refs = self._parse_list_page(html, base, keywords, list_url=list_url)
                 refs.extend(page_refs)
             except Exception:
                 continue
@@ -50,7 +50,11 @@ class CnMofConnector(Connector):
         return refs
 
     def fetch(self, ref: DocumentRef) -> RawDocument:
-        client = create_client(timeout=60, headers={"Accept-Charset": "utf-8"})
+        referer = ref.metadata.get("list_url", self._base_url())
+        client = create_client(
+            timeout=60,
+            headers={"Accept-Charset": "utf-8", "Referer": referer},
+        )
         url = ref.url
         resp = fetch_with_retry(client, url)
         return RawDocument(
@@ -62,7 +66,7 @@ class CnMofConnector(Connector):
         )
 
     def _parse_list_page(
-        self, html: str, base_url: str, keywords: list[str],
+        self, html: str, base_url: str, keywords: list[str], list_url: str = "",
     ) -> list[DocumentRef]:
         soup = BeautifulSoup(html, "html.parser")
         refs: list[DocumentRef] = []
@@ -95,7 +99,10 @@ class CnMofConnector(Connector):
                 doc_type="announcement",
                 url=href,
                 issued_at=date,
-                metadata={"wenhao": doc_id if "号" in doc_id else ""},
+                metadata={
+                    "wenhao": doc_id if "号" in doc_id else "",
+                    "list_url": list_url,
+                },
             ))
 
         return refs

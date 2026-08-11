@@ -64,9 +64,27 @@ class CnChinataxConnector(Connector):
         return refs
 
     def fetch(self, ref: DocumentRef) -> RawDocument:
+        import logging
+        import httpx
+
         client = create_client(timeout=60, headers={"Accept-Charset": "utf-8"})
         url = ref.url
-        resp = fetch_with_retry(client, url)
+        try:
+            resp = fetch_with_retry(client, url)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                logging.getLogger(__name__).warning(
+                    "chinatax document URL returned 404 (page may have moved to fgk subdomain): %s", url
+                )
+                # Return empty content so pipeline can skip gracefully
+                return RawDocument(
+                    external_id=ref.external_id,
+                    content=b"",
+                    content_type="text/html",
+                    url=url,
+                    metadata={**ref.metadata, "skip": True},
+                )
+            raise
         return RawDocument(
             external_id=ref.external_id,
             content=resp.content,

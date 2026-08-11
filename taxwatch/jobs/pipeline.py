@@ -89,6 +89,8 @@ def execute_pipeline(
         doc = _ensure_document(session, source, ref)
 
         raw = connector.fetch(ref)
+        if raw.metadata.get("skip"):
+            continue
         _save_raw(raw, source_key)
 
         normalized = normalizer.normalize(raw)
