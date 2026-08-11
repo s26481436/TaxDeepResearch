@@ -36,12 +36,11 @@ class CnChinataxConnector(Connector):
     def _base_url(self) -> str:
         return self.source_config.get("base_url", "https://www.chinatax.gov.cn")
 
-    # Paths that serve static HTML article pages (not redirected to fgk SPA).
-    # None keywords = accept all articles on that path (no keyword filter).
-    # NOTE: n810341/* list pages link to old n367/n362/n377 content URLs which 404;
-    # only the news section (n810219) reliably serves accessible static content.
-    _ACCESSIBLE_PATHS: list[tuple[str, list[str] | None]] = [
-        ("/chinatax/n810219/n810724/index.html", None),  # 税务新闻 (policy press releases)
+    # Paths that serve static HTML article pages. The n810341/* listings link to
+    # legacy n367/n362/n377 content URLs that now 404 (migrated to the
+    # fgk.chinatax.gov.cn SPA), so only the news section is fetchable.
+    _ACCESSIBLE_PATHS: list[str] = [
+        "/chinatax/n810219/n810724/index.html",  # 税务新闻 (policy press releases)
     ]
 
     def discover(self, since: datetime | None = None) -> list[DocumentRef]:
@@ -49,12 +48,7 @@ class CnChinataxConnector(Connector):
         base = self._base_url()
         refs: list[DocumentRef] = []
 
-        path_entries = self.source_config.get("list_paths", None)
-        # list_paths in config may be a plain list of paths; convert to (path, None) pairs
-        if path_entries is not None:
-            entries: list[tuple[str, list[str] | None]] = [(p, None) for p in path_entries]
-        else:
-            entries = self._ACCESSIBLE_PATHS
+        list_paths = self.source_config.get("list_paths", self._ACCESSIBLE_PATHS)
 
         keywords = self.source_config.get(
             "keywords",
@@ -78,13 +72,11 @@ class CnChinataxConnector(Connector):
             ],
         )
 
-        for path, path_kw in entries:
-            # None means no keyword filter for this path
-            effective_kw = path_kw if path_kw is not None else keywords
+        for path in list_paths:
             try:
                 resp = fetch_with_retry(client, f"{base}{path}")
                 html = resp.content.decode("utf-8", errors="replace")
-                page_refs = self._parse_list_page(html, base, effective_kw)
+                page_refs = self._parse_list_page(html, base, keywords)
                 refs.extend(page_refs)
             except Exception:
                 continue
