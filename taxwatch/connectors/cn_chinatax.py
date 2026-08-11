@@ -1,28 +1,55 @@
-"""国家税务总局 connector (chinatax.gov.cn).
+"""国家税务总局 connector — 政策法规库 (fgk.chinatax.gov.cn).
 
-Scrapes the policy document listing pages. Documents are HTML with occasional
-PDF attachments. Uses 文号 (e.g. 国家税务总局公告2026年第X号) as stable external_id.
+The legacy ``www.chinatax.gov.cn/chinatax/n<id>/`` listing pages were retired:
+their article URLs now 404 and the policy library moved to the ``fgk`` subdomain,
+which renders client-side. Rather than drive a browser, this connector calls the
+JSON search backend the fgk pages themselves use::
 
-Focus: enterprise/manufacturing tax — 企业所得税, 增值税, 印花税, 环保税, 资源税.
+    GET https://www.chinatax.gov.cn/search5/search/s
+        ?siteCode=bm29000002&column=...&label=...&pageNum=&pageSize=
+
+The documents live under ``searchResultAll.searchTotal``; each entry carries the
+title, canonical content URL, publication date and effect level (效力層級).
+Article bodies are then fetched from the returned ``content.html`` URLs, which
+are plain server-rendered HTML.
+
+Uses 文号 (e.g. 国家税务总局公告2026年第16号) as the stable external_id where the
+title exposes one, falling back to the numeric id embedded in the URL.
 """
 
 from __future__ import annotations
 
 import re
 from datetime import datetime
-
-from bs4 import BeautifulSoup
+from typing import Any
 
 from taxwatch.connectors.base import Connector, DocumentRef, RawDocument
 from taxwatch.connectors.http import create_client, fetch_with_retry
 from taxwatch.wenhao import extract_first
 
+_SEARCH_API = "https://www.chinatax.gov.cn/search5/search/s"
+
+# The backend rejects requests that don't look like they came from the fgk UI.
+_REFERER = "https://fgk.chinatax.gov.cn/zcfgk/c100028/zcwj.html"
+
+# Which fgk sections and document classes to pull. These mirror the query the
+# 政策文件 tab issues; narrowing `label` is the main way to scope the crawl.
+_DEFAULT_COLUMNS = "政策法规,政策解读,政策指引"
+_DEFAULT_LABELS = "法律,行政法规,国务院文件,税务部门规章,税务规范性文件,财税文件"
+
+# The server caps a page at 10 regardless of the requested size.
+_PAGE_SIZE = 10
+_DEFAULT_MAX_PAGES = 10
+
 _DOC_TYPE_MAP = {
     "法律": "statute",
     "行政法规": "statute",
+    "国务院文件": "statute",
     "部门规章": "regulation",
-    "规范性文件": "regulation",
     "税务部门规章": "regulation",
+    "规范性文件": "regulation",
+    "税务规范性文件": "regulation",
+    "财税文件": "regulation",
     "公告": "announcement",
     "通知": "announcement",
     "批复": "ruling",
@@ -33,133 +60,167 @@ class CnChinataxConnector(Connector):
     key = "cn_chinatax"
     country = "CN"
 
-    def _base_url(self) -> str:
-        return self.source_config.get("base_url", "https://www.chinatax.gov.cn")
+    def _client(self):
+        return create_client(timeout=60, headers={"Referer": _REFERER})
 
-    # Paths that serve static HTML article pages. The n810341/* listings link to
-    # legacy n367/n362/n377 content URLs that now 404 (migrated to the
-    # fgk.chinatax.gov.cn SPA), so only the news section is fetchable.
-    _ACCESSIBLE_PATHS: list[str] = [
-        "/chinatax/n810219/n810724/index.html",  # 税务新闻 (policy press releases)
-    ]
+    def _search_params(self, page: int) -> dict[str, str]:
+        cfg = self.source_config
+        return {
+            "siteCode": "bm29000002",
+            "searchWord": "",
+            "type": "",
+            "pageSize": str(_PAGE_SIZE),
+            "pageNum": str(page),
+            "orderBy": "5",  # 5 = 成文日期倒序
+            "column": cfg.get("columns", _DEFAULT_COLUMNS),
+            "label": cfg.get("labels", _DEFAULT_LABELS),
+            "likeDoc": "0",
+            "wordPlace": "0",
+            "indexCode": "1",
+        }
 
     def discover(self, since: datetime | None = None) -> list[DocumentRef]:
-        client = create_client(timeout=60, headers={"Accept-Charset": "utf-8"})
-        base = self._base_url()
+        client = self._client()
+        max_pages = int(self.source_config.get("max_pages", _DEFAULT_MAX_PAGES))
+        # Optional title filter; the column/label query already scopes to tax law,
+        # so leaving this unset (the default) is what you normally want.
+        keywords = self.source_config.get("keywords") or None
+
         refs: list[DocumentRef] = []
+        seen: set[str] = set()
 
-        list_paths = self.source_config.get("list_paths", self._ACCESSIBLE_PATHS)
-
-        keywords = self.source_config.get(
-            "keywords",
-            [
-                "企业所得税",
-                "增值税",
-                "印花税",
-                "环境保护税",
-                "资源税",
-                "城市维护建设税",
-                "税收征收管理",
-                "制造业",
-                "小微企业",
-                "研发费用",
-                "加计扣除",
-                "留抵退税",
-                "出口退税",
-                "税收",
-                "纳税",
-                "退税",
-            ],
-        )
-
-        for path in list_paths:
+        for page in range(max_pages):
             try:
-                resp = fetch_with_retry(client, f"{base}{path}")
-                html = resp.content.decode("utf-8", errors="replace")
-                page_refs = self._parse_list_page(html, base, keywords)
-                refs.extend(page_refs)
+                resp = fetch_with_retry(client, _SEARCH_API, params=self._search_params(page))
+                entries = resp.json()["searchResultAll"]["searchTotal"]
             except Exception:
-                continue
+                break
+
+            if not entries:
+                break
+
+            reached_cutoff = False
+            for entry in entries:
+                issued_at = _parse_api_date(entry.get("pubDate") or entry.get("cwrq") or "")
+                # Results are date-descending, so the first doc older than the
+                # watermark means every later page is older too.
+                if since and issued_at and issued_at < since:
+                    reached_cutoff = True
+                    break
+
+                ref = self._to_ref(entry, issued_at, keywords)
+                if ref is None or ref.url in seen:
+                    continue
+                seen.add(ref.url)
+                refs.append(ref)
+
+            if reached_cutoff:
+                break
 
         return refs
+
+    def _to_ref(
+        self,
+        entry: dict[str, Any],
+        issued_at: datetime | None,
+        keywords: list[str] | None,
+    ) -> DocumentRef | None:
+        title = (entry.get("title") or "").strip()
+        url = (entry.get("url") or "").strip()
+        if not title or not url:
+            return None
+
+        if keywords and not any(kw in title for kw in keywords):
+            return None
+
+        url = _https(url)
+        label = entry.get("label") or entry.get("xxgk_effectLevel") or ""
+        wenhao = _extract_wenhao(title) or (entry.get("indexno") or "").strip()
+
+        return DocumentRef(
+            external_id=wenhao or _id_from_url(url) or title[:80],
+            title=title,
+            doc_type=_infer_doc_type(f"{label}{title}"),
+            url=url,
+            issued_at=issued_at,
+            metadata={
+                "title": title,
+                "wenhao": wenhao,
+                "effect_level": label,
+                "aging": entry.get("xxgk_aging") or "",
+                "pub_name": entry.get("pubName") or "",
+                "summary": (entry.get("content") or "").strip(),
+            },
+        )
 
     def fetch(self, ref: DocumentRef) -> RawDocument:
         import logging
 
         import httpx
 
-        client = create_client(timeout=60, headers={"Accept-Charset": "utf-8"})
-        url = ref.url
+        client = self._client()
         try:
-            resp = fetch_with_retry(client, url)
+            resp = fetch_with_retry(client, ref.url)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 404:
-                logging.getLogger(__name__).warning(
-                    "chinatax 404 (moved to fgk subdomain?): %s", url
-                )
-                # Return empty content so pipeline can skip gracefully
+                logging.getLogger(__name__).warning("chinatax document gone: %s", ref.url)
+                # Empty content so the pipeline can skip this document.
                 return RawDocument(
                     external_id=ref.external_id,
                     content=b"",
                     content_type="text/html",
-                    url=url,
+                    url=ref.url,
                     metadata={**ref.metadata, "skip": True},
                 )
             raise
+
+        metadata = dict(ref.metadata)
+        # The search API leaves `indexno` blank, but the article page prints the
+        # 文号 directly beneath the title — recover it for citation matching.
+        if not metadata.get("wenhao"):
+            found = _wenhao_from_article(resp.content)
+            if found:
+                metadata["wenhao"] = found
+
         return RawDocument(
             external_id=ref.external_id,
             content=resp.content,
             content_type=resp.headers.get("content-type", "text/html"),
-            url=url,
-            metadata=ref.metadata,
+            url=ref.url,
+            metadata=metadata,
         )
 
-    def _parse_list_page(
-        self,
-        html: str,
-        base_url: str,
-        keywords: list[str] | None,
-    ) -> list[DocumentRef]:
-        soup = BeautifulSoup(html, "html.parser")
-        refs: list[DocumentRef] = []
 
-        for link in soup.select("a[href]"):
-            title = link.get_text(strip=True)
-            if not title or len(title) < 4:
-                continue
+def _wenhao_from_article(content: bytes) -> str:
+    """Read the 文号 printed under the title of an fgk article page.
 
-            href = link["href"]
-            # Skip nav links, search links, and non-article pages
-            if not href or "/content.html" not in href:
-                continue
+    Only the opening lines are scanned so that a 文号 *cited* in the body can't
+    be mistaken for the document's own number.
+    """
+    from bs4 import BeautifulSoup
 
-            if keywords is not None and not any(kw in title for kw in keywords):
-                continue
+    soup = BeautifulSoup(content.decode("utf-8", errors="replace"), "html.parser")
+    body = soup.select_one(".content")
+    if body is None:
+        return ""
+    return _extract_wenhao(body.get_text("\n", strip=True)[:200]) or ""
 
-            if not href.startswith("http"):
-                if href.startswith("/"):
-                    href = f"{base_url}{href}"
-                else:
-                    href = f"{base_url}/{href}"
 
-            doc_id = _extract_wenhao(title) or _id_from_url(href) or title[:80]
-            doc_type = _infer_doc_type(title)
+def _https(url: str) -> str:
+    return url.replace("http://", "https://", 1) if url.startswith("http://") else url
 
-            parent = link.find_parent(["li", "tr", "div"])
-            date = _extract_date_from_context(parent) if parent else None
 
-            refs.append(
-                DocumentRef(
-                    external_id=doc_id,
-                    title=title,
-                    doc_type=doc_type,
-                    url=href,
-                    issued_at=date,
-                    metadata={"wenhao": doc_id if doc_id != title[:80] else ""},
-                )
-            )
-
-        return refs
+def _parse_api_date(raw: str) -> datetime | None:
+    """Parse the API's ``2026-07-31 00:00:00`` timestamps."""
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(raw[: len(fmt) + 2].strip(), fmt)
+        except ValueError:
+            continue
+    return None
 
 
 def _extract_wenhao(text: str) -> str | None:
@@ -172,25 +233,21 @@ def _extract_wenhao(text: str) -> str | None:
 
 
 def _id_from_url(url: str) -> str | None:
+    """Pull the document id out of a fgk content URL.
+
+    e.g. ``.../zcfgk/c100012/c5251620/content.html`` -> ``c5251620``
+    """
+    m = re.search(r"/(c\d{5,})/content\.html", url)
+    if m:
+        return m.group(1)
     m = re.search(r"/(\d{8,})/|/t(\d+)_|content_(\d+)", url)
     if m:
         return m.group(1) or m.group(2) or m.group(3)
     return None
 
 
-def _infer_doc_type(title: str) -> str:
+def _infer_doc_type(text: str) -> str:
     for keyword, dtype in _DOC_TYPE_MAP.items():
-        if keyword in title:
+        if keyword in text:
             return dtype
     return "announcement"
-
-
-def _extract_date_from_context(element) -> datetime | None:
-    text = element.get_text()
-    m = re.search(r"(\d{4})[-.年/](\d{1,2})[-.月/](\d{1,2})", text)
-    if m:
-        try:
-            return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-        except ValueError:
-            return None
-    return None

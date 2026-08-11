@@ -79,7 +79,10 @@ class CnTaxHtmlNormalizer(Normalizer):
         html = raw.content.decode(encoding, errors="replace")
         soup = BeautifulSoup(html, "html.parser")
 
-        title = self._extract_title(soup) or raw.external_id
+        # The connector's listing title is authoritative; fgk article pages put
+        # the site name in <title>, so only fall back to scraping the document.
+        title = (raw.metadata.get("title") or "").strip() or self._extract_title(soup)
+        title = title or raw.external_id
         law_name = _extract_law_name(title)
         provisions = self._extract_provisions(soup, law_name or raw.external_id)
 
