@@ -14,11 +14,22 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy import MetaData
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
-class Base(DeclarativeBase):
-    pass
+def _make_base(schema: str | None = None) -> type:
+    """Return a DeclarativeBase bound to the given schema (or public if None)."""
+    _meta = MetaData(schema=schema or None)
+
+    class Base(DeclarativeBase):
+        metadata = _meta  # type: ignore[assignment]
+
+    return Base
+
+
+# Resolved at init_db() time via configure_schema(); defaults to public.
+Base: type = _make_base(None)
 
 
 # ---------- Enums ----------

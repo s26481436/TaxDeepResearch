@@ -22,12 +22,16 @@ def _load_builtins():
     from taxwatch.connectors.tw_constitutional import TwConstitutionalConnector
     from taxwatch.connectors.tw_mof_ruling import TwMofRulingConnector
     from taxwatch.connectors.tw_moj_law import TwMojLawConnector
+    from taxwatch.connectors.us_ecfr import UsEcfrConnector
     from taxwatch.connectors.us_federal_register import UsFederalRegisterConnector
+    from taxwatch.connectors.us_govinfo_cfr import UsGovinfoConnector
+    from taxwatch.connectors.us_state_tax import UsStateTaxConnector
 
     for cls in [
         TwMojLawConnector, TwMofRulingConnector,
         TwConstitutionalConnector, UsFederalRegisterConnector,
         CnChinataxConnector, CnMofConnector,
+        UsEcfrConnector, UsGovinfoConnector, UsStateTaxConnector,
     ]:
         register(cls)
 

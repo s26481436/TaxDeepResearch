@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from sqlalchemy import create_engine
+import taxwatch.models as _models_module
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from taxwatch.config import get_settings
-from taxwatch.models import Base
 
 _engine = None
 _session_factory: sessionmaker[Session] | None = None
@@ -29,4 +29,18 @@ def get_session() -> Session:
 
 
 def init_db():
-    Base.metadata.create_all(get_engine())
+    """Create schema (if configured) and all tables."""
+    settings = get_settings()
+    schema = settings.db_schema.strip() or None
+
+    # Re-build Base with the correct schema so all Table definitions pick it up.
+    _models_module.Base = _models_module._make_base(schema)
+
+    engine = get_engine()
+
+    if schema:
+        with engine.connect() as conn:
+            conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+            conn.commit()
+
+    _models_module.Base.metadata.create_all(engine)
