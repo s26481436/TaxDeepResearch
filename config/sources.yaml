@@ -40,30 +40,13 @@ sources:
     description: "国家税务总局 — 税收法规与规范性文件"
     enabled: true
     config:
-      base_url: "https://www.chinatax.gov.cn"
-      # n810341/* list pages link to legacy n367/n362/n377 content URLs that
-      # now 404 (migrated to the fgk.chinatax.gov.cn SPA). Only the news
-      # section still serves fetchable static HTML.
-      list_paths:
-        - "/chinatax/n810219/n810724/index.html"
-      keywords:
-        - "企业所得税"
-        - "增值税"
-        - "印花税"
-        - "环境保护税"
-        - "资源税"
-        - "城市维护建设税"
-        - "税收征收管理"
-        - "制造业"
-        - "小微企业"
-        - "研发费用"
-        - "加计扣除"
-        - "留抵退税"
-        - "出口退税"
-        # Broad catch-alls: the news section titles rarely name a specific tax
-        - "税收"
-        - "纳税"
-        - "退税"
+      # Documents come from the fgk 政策法规库 JSON search backend; the legacy
+      # www.chinatax.gov.cn/chinatax/n<id>/ listing pages are retired and 404.
+      # `column`/`label` already scope the query to tax law, so no keyword
+      # filter is applied (set `keywords` here to narrow by title).
+      columns: "政策法规,政策解读,政策指引"
+      labels: "法律,行政法规,国务院文件,税务部门规章,税务规范性文件,财税文件"
+      max_pages: 10
 
   cn-mof:
     country: CN
