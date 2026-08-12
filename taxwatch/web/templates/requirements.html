@@ -8,6 +8,42 @@
 
 {% block content %}
 
+{% if extract_result %}
+<div class="flash flash-ok">{{ extract_result }}</div>
+{% endif %}
+{% if extract_error %}
+<div class="flash flash-err">{{ extract_error }}</div>
+{% endif %}
+
+<div class="panel">
+  <div class="panel-hd"><h2>抽取申報規範</h2></div>
+  <div class="panel-bd">
+    <form method="post" action="/requirements/extract" class="extract-form">
+      <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+        <div style="flex:1;min-width:250px">
+          <label style="font-size:12.5px;color:var(--muted);display:block;margin-bottom:4px">選擇法規</label>
+          <select name="document" required style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg);font-size:13px">
+            <option value="">— 請選擇 —</option>
+            {% for d in extractable %}
+            <option value="{{ d.external_id }}">{{ d.title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <label style="font-size:12.5px;display:flex;align-items:center;gap:4px;padding-bottom:2px">
+          <input type="checkbox" name="allow_child" value="true">
+          <span>允許只依子法抽取</span>
+        </label>
+        <button type="submit" class="btn" style="background:var(--accent,#2563eb);color:#fff;border:none;padding:7px 16px;border-radius:4px;cursor:pointer;font-size:13px;white-space:nowrap">
+          抽取
+        </button>
+      </div>
+    </form>
+    <p style="font-size:12px;color:var(--muted);margin-top:8px">
+      從已收錄的法規條文以 LLM 抽取申報規範矩陣。需要先執行 <code>taxwatch run</code> 收錄法規。
+    </p>
+  </div>
+</div>
+
 {% if review.count %}
 <div class="panel">
   <div class="panel-hd"><h2>待覆核（{{ review.count }}）</h2></div>

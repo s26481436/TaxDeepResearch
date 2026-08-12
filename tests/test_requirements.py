@@ -657,3 +657,17 @@ class TestWebSurface:
         cell = next(f for f in detail["fields"] if f["field_key"] == "incentives")
         assert cell["value"] == "已人工修改。"
         assert cell["source"] == "manual"
+
+    def test_extract_form_shown_on_requirements_page(self, client):
+        resp = client.get("/requirements")
+        assert "抽取申報規範" in resp.text
+        assert "抽取" in resp.text
+
+    def test_extract_post_with_bad_document_shows_error(self, client):
+        resp = client.post(
+            "/requirements/extract",
+            data={"document": "no-such-law"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert "flash-err" in resp.text or "找不到" in resp.text or "no-such-law" in resp.text

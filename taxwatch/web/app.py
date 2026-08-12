@@ -176,10 +176,24 @@ def requirements_page(
     request: Request,
     tax_key: str | None = None,
     country: str | None = None,
+    extract_result: str | None = None,
+    extract_error: str | None = None,
 ) -> HTMLResponse:
     """The 申報規範 matrix — what a filer must do, per tax type and scenario."""
     session = get_session()
     try:
+        from taxwatch.models import DocType, Document, Source
+
+        statutes = (
+            session.query(Document)
+            .join(Source, Document.source_id == Source.id)
+            .filter(Document.doc_type.in_([DocType.STATUTE, DocType.REGULATION]))
+            .order_by(Source.country, Document.title)
+            .all()
+        )
+        extractable = [
+            {"external_id": d.external_id, "title": d.title} for d in statutes
+        ]
         return _page(
             request,
             "requirements.html",
@@ -188,8 +202,50 @@ def requirements_page(
                 session, country=country, tax_key=tax_key
             ),
             review=requirements_svc.review_summary(session, tax_key=tax_key),
+            extractable=extractable,
+            extract_result=extract_result,
+            extract_error=extract_error,
             tax_key=tax_key,
             country=country,
+        )
+    finally:
+        session.close()
+
+
+@app.post("/requirements/extract")
+def extract_requirements_web(
+    document: str = Form(...),
+    allow_child: bool = Form(False),
+) -> RedirectResponse:
+    """Run extract-requirements from the web UI."""
+    from urllib.parse import quote, urlencode
+
+    from taxwatch.requirements.extract import (
+        MissingParentLaw,
+        NoSourceDocument,
+        extract_for_document,
+    )
+
+    session = get_session()
+    try:
+        stats = extract_for_document(
+            session, document.strip(), allow_child=allow_child
+        )
+        msg = (
+            f"已從《{stats['source_document']}》抽取 {stats['requirements']} 個課稅情境"
+            f"（{stats['provisions_supplied']} 條條文）"
+        )
+        return RedirectResponse(
+            f"/requirements?{urlencode({'extract_result': msg})}", status_code=303
+        )
+    except (MissingParentLaw, NoSourceDocument, LookupError) as exc:
+        return RedirectResponse(
+            f"/requirements?{urlencode({'extract_error': str(exc)})}", status_code=303
+        )
+    except Exception as exc:
+        return RedirectResponse(
+            f"/requirements?{urlencode({'extract_error': f'抽取失敗：{type(exc).__name__}: {exc}'})}",
+            status_code=303,
         )
     finally:
         session.close()
