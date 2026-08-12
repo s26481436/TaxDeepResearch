@@ -56,6 +56,21 @@
       {{ f.review_reason }}
       {% if f.change %}<a href="/changes/{{ f.change.id }}">查看 {{ f.change.node_key }} 的異動 →</a>{% endif %}
     </div>
+    <div class="review-actions">
+      <form method="post" action="/requirements/{{ req.id }}/fields/{{ f.field_key }}/review" style="display:inline">
+        <input type="hidden" name="action" value="approve">
+        <button type="submit" class="btn btn-approve">✓ 核准（維持現值）</button>
+      </form>
+      <button type="button" class="btn btn-edit" onclick="toggleEdit(this, '{{ f.field_key }}')">✎ 修改</button>
+    </div>
+    <form method="post" action="/requirements/{{ req.id }}/fields/{{ f.field_key }}/review" class="edit-form" id="edit-{{ f.field_key }}" style="display:none">
+      <input type="hidden" name="action" value="edit">
+      <textarea name="value" rows="4" style="width:100%;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg);resize:vertical">{{ f.value }}</textarea>
+      <div style="margin-top:8px">
+        <button type="submit" class="btn btn-approve">儲存</button>
+        <button type="button" class="btn ghost" onclick="toggleEdit(this, '{{ f.field_key }}')">取消</button>
+      </div>
+    </form>
     {% endif %}
 
     <div class="{{ 'mono' if f.monospace }}" style="white-space:pre-wrap;line-height:1.7">{{ f.value }}</div>
@@ -87,6 +102,18 @@
     padding:10px 12px; margin-bottom:12px; border-radius:6px;
     background:rgba(220,150,40,.12); border-left:3px solid #d9922a; font-size:13px;
   }
+  .review-actions { margin-bottom:12px; display:flex; gap:8px; }
+  .btn-approve {
+    background:#2a7d3f; color:#fff; border:none; padding:6px 14px;
+    border-radius:4px; cursor:pointer; font-size:13px;
+  }
+  .btn-approve:hover { background:#226633; }
+  .btn-edit {
+    background:var(--bg); color:var(--fg); border:1px solid var(--line);
+    padding:6px 14px; border-radius:4px; cursor:pointer; font-size:13px;
+  }
+  .btn-edit:hover { background:var(--line); }
+  .edit-form { margin-bottom:12px; }
   .cites { margin-top:14px; padding-top:12px; border-top:1px solid var(--line); }
   .cites-hd { font-size:12px; color:var(--muted); margin-bottom:8px; letter-spacing:.04em; }
   .cite { margin-bottom:10px; font-size:13px; }
@@ -95,4 +122,10 @@
     color:var(--muted); white-space:pre-wrap; font-size:12.5px; line-height:1.6;
   }
 </style>
+<script>
+function toggleEdit(btn, key) {
+  var form = document.getElementById('edit-' + key);
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+</script>
 {% endblock %}
