@@ -63,7 +63,7 @@ class CnChinataxConnector(Connector):
     def _client(self):
         return create_client(timeout=60, headers={"Referer": _REFERER})
 
-    def _search_params(self, page: int) -> dict[str, str]:
+    def _search_params(self, page: int, label: str) -> dict[str, str]:
         cfg = self.source_config
         return {
             "siteCode": "bm29000002",
@@ -73,7 +73,7 @@ class CnChinataxConnector(Connector):
             "pageNum": str(page),
             "orderBy": "5",  # 5 = 成文日期倒序
             "column": cfg.get("columns", _DEFAULT_COLUMNS),
-            "label": cfg.get("labels", _DEFAULT_LABELS),
+            "label": label,
             "likeDoc": "0",
             "wordPlace": "0",
             "indexCode": "1",
@@ -82,16 +82,36 @@ class CnChinataxConnector(Connector):
     def discover(self, since: datetime | None = None) -> list[DocumentRef]:
         client = self._client()
         max_pages = int(self.source_config.get("max_pages", _DEFAULT_MAX_PAGES))
-        # Optional title filter; the column/label query already scopes to tax law,
-        # so leaving this unset (the default) is what you normally want.
         keywords = self.source_config.get("keywords") or None
+        labels = [
+            l.strip()
+            for l in (self.source_config.get("labels") or _DEFAULT_LABELS).split(",")
+            if l.strip()
+        ]
 
         refs: list[DocumentRef] = []
         seen: set[str] = set()
 
+        for label in labels:
+            self._search_label(client, label, max_pages, since, keywords, refs, seen)
+
+        return refs
+
+    def _search_label(
+        self,
+        client,
+        label: str,
+        max_pages: int,
+        since: datetime | None,
+        keywords: list[str] | None,
+        refs: list[DocumentRef],
+        seen: set[str],
+    ) -> None:
         for page in range(max_pages):
             try:
-                resp = fetch_with_retry(client, _SEARCH_API, params=self._search_params(page))
+                resp = fetch_with_retry(
+                    client, _SEARCH_API, params=self._search_params(page, label)
+                )
                 entries = resp.json()["searchResultAll"]["searchTotal"]
             except Exception:
                 break
@@ -102,8 +122,6 @@ class CnChinataxConnector(Connector):
             reached_cutoff = False
             for entry in entries:
                 issued_at = _parse_api_date(entry.get("pubDate") or entry.get("cwrq") or "")
-                # Results are date-descending, so the first doc older than the
-                # watermark means every later page is older too.
                 if since and issued_at and issued_at < since:
                     reached_cutoff = True
                     break
@@ -116,8 +134,6 @@ class CnChinataxConnector(Connector):
 
             if reached_cutoff:
                 break
-
-        return refs
 
     def _to_ref(
         self,

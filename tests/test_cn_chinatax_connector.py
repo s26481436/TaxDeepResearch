@@ -168,7 +168,8 @@ class TestDiscover:
             refs = conn.discover()
 
         assert refs == []
-        assert mock_fetch.call_count == 1
+        # One call per label (6 default labels), each returns empty on page 0
+        assert mock_fetch.call_count == 6
 
     def test_keyword_filter_is_opt_in(self):
         """No keywords configured means the API's column/label scoping stands."""
