@@ -11,14 +11,15 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Form, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from taxwatch.api.lifespan import lifespan
 from taxwatch.api.routes import ALL_ROUTERS
 from taxwatch.config import load_sources
 from taxwatch.db import get_session
+from taxwatch.models import TaxRequirement
 from taxwatch.services import consolidated as consolidated_svc
 from taxwatch.services import dashboard as dashboard_svc
 from taxwatch.services import documents as documents_svc
@@ -207,6 +208,35 @@ def requirement_detail_page(request: Request, requirement_id: int) -> HTMLRespon
     except requirements_svc.RequirementNotFound as exc:
         return _page(
             request, "not_found.html", active="requirements", message=f"找不到申報規範：{exc}"
+        )
+    finally:
+        session.close()
+
+
+@app.post("/requirements/{requirement_id}/fields/{field_key}/review")
+def review_field(
+    requirement_id: int,
+    field_key: str,
+    action: str = Form(...),
+    value: str = Form(""),
+) -> RedirectResponse:
+    """Accept or edit a single requirement field."""
+    session = get_session()
+    try:
+        if action == "edit" and value.strip():
+            requirements_svc.update_field(session, requirement_id, field_key, value)
+        else:
+            req = session.get(TaxRequirement, requirement_id)
+            if req is None:
+                raise requirements_svc.RequirementNotFound(str(requirement_id))
+            field = next((f for f in req.fields if f.field_key == field_key), None)
+            if field and field.needs_review:
+                from taxwatch.requirements.staleness import clear_review_flag
+
+                clear_review_flag(session, field)
+                session.commit()
+        return RedirectResponse(
+            f"/requirements/{requirement_id}#{field_key}", status_code=303
         )
     finally:
         session.close()

@@ -634,3 +634,26 @@ class TestWebSurface:
         cell = next(f for f in resp.json()["fields"] if f["field_key"] == "incentives")
         assert cell["source"] == "manual"
         assert cell["needs_review"] is False
+
+    def test_web_approve_clears_review_flag(self, client):
+        rid = client.get("/api/requirements").json()["requirements"][0]["id"]
+        resp = client.post(
+            f"/requirements/{rid}/fields/incentives/review",
+            data={"action": "approve"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        detail = client.get(f"/requirements/{rid}").text
+        assert "待覆核" not in detail or "0 欄待覆核" in detail
+
+    def test_web_edit_updates_value(self, client):
+        rid = client.get("/api/requirements").json()["requirements"][0]["id"]
+        client.post(
+            f"/requirements/{rid}/fields/incentives/review",
+            data={"action": "edit", "value": "已人工修改。"},
+            follow_redirects=False,
+        )
+        detail = client.get(f"/api/requirements/{rid}").json()
+        cell = next(f for f in detail["fields"] if f["field_key"] == "incentives")
+        assert cell["value"] == "已人工修改。"
+        assert cell["source"] == "manual"
