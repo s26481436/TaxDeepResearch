@@ -32,12 +32,15 @@ Configuration (sources.yaml)::
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime
 from typing import Any
 
-from taxwatch.connectors.base import Connector, DocumentRef, RawDocument
+from taxwatch.connectors.base import Connector, ConnectorError, DocumentRef, RawDocument
 from taxwatch.connectors.http import create_client
+
+logger = logging.getLogger(__name__)
 
 _SEARCH_API = "https://flk.npc.gov.cn/api/"
 _DETAIL_API = "https://flk.npc.gov.cn/api/detail"
@@ -81,11 +84,17 @@ class CnNpcConnector(Connector):
         client = self._client()
         refs: list[DocumentRef] = []
         seen: set[str] = set()
+        failures: list[str] = []
 
         for keyword in keywords:
             try:
                 entries = self._search(client, keyword)
-            except Exception:
+            except Exception as exc:
+                # Swallowing this silently turned a totally broken upstream
+                # into "run succeeded, 0 documents" — the operator had no way
+                # to tell a genuinely empty result from a 405 on every query.
+                logger.warning("cn_npc search failed for %r: %s", keyword, exc)
+                failures.append(f"{keyword}: {type(exc).__name__}: {exc}")
                 continue
 
             for entry in entries:
@@ -96,6 +105,14 @@ class CnNpcConnector(Connector):
                     continue
                 seen.add(ref.external_id)
                 refs.append(ref)
+
+        # Every query failing is an upstream/contract problem, not an empty
+        # database. Fail loudly rather than reporting a clean run.
+        if failures and not refs:
+            raise ConnectorError(
+                "cn_npc discovered nothing because every search failed "
+                f"({len(failures)}/{len(keywords)}). First error — {failures[0]}"
+            )
 
         return refs
 
