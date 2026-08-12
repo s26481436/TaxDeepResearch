@@ -5,6 +5,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 
+class ConnectorError(RuntimeError):
+    """Raised when a connector cannot do its job at all.
+
+    Distinct from "the source genuinely has nothing new": a connector that
+    returns an empty list is reporting a fact, while one that raises this is
+    reporting that it never got to look.
+    """
+
+
 @dataclass
 class DocumentRef:
     external_id: str
