@@ -105,7 +105,11 @@ class CnMofConnector(Connector):
                 else:
                     href = f"{base_url}/{href}"
 
-            from taxwatch.connectors.cn_chinatax import _extract_wenhao, _id_from_url
+            from taxwatch.connectors.cn_chinatax import (
+                _extract_wenhao,
+                _id_from_url,
+                _infer_doc_type,
+            )
 
             doc_id = _extract_wenhao(title) or _id_from_url(href) or title[:80]
 
@@ -116,7 +120,7 @@ class CnMofConnector(Connector):
                 DocumentRef(
                     external_id=doc_id,
                     title=title,
-                    doc_type="announcement",
+                    doc_type=_infer_doc_type(title),
                     url=href,
                     issued_at=date,
                     metadata={

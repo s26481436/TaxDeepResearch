@@ -34,6 +34,28 @@ sources:
     config:
       base_url: "https://cons.judicial.gov.tw"
 
+  cn-npc:
+    country: CN
+    connector: cn_npc
+    description: "国家法律法规数据库 — 全国人大税收本法（增值税法、企业所得税法等）"
+    enabled: true
+    config:
+      keywords:
+        - 增值税法
+        - 企业所得税法
+        - 个人所得税法
+        - 税收征收管理法
+        - 印花税法
+        - 契税法
+        - 城市维护建设税法
+        - 车船税法
+        - 环境保护税法
+        - 资源税法
+        - 耕地占用税法
+        - 烟叶税法
+        - 船舶吨税法
+        - 车辆购置税法
+
   cn-chinatax:
     country: CN
     connector: cn_chinatax

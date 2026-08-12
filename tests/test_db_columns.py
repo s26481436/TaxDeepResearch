@@ -91,7 +91,27 @@ class TestSchemaConnectArgs:
         from taxwatch.db import _schema_connect_args
 
         args = _schema_connect_args("postgresql+psycopg://u@h/db", "taxwatch_prod")
-        assert args == {"connect_args": {"options": "-csearch_path=taxwatch_prod,public"}}
+        assert args == {"connect_args": {"options": '-csearch_path="taxwatch_prod",public'}}
+
+    def test_hyphenated_schema_is_quoted(self):
+        """`fin-tax` happens to survive unquoted, but only by luck."""
+        from taxwatch.db import _schema_connect_args
+
+        args = _schema_connect_args("postgresql+psycopg://u@h/db", "fin-tax")
+        assert args["connect_args"]["options"] == '-csearch_path="fin-tax",public'
+
+    def test_schema_with_a_space_is_escaped_for_libpq(self):
+        """Unescaped, the space splits the option list and the connect fails
+        with an opaque "connection failed" rather than anything diagnosable."""
+        from taxwatch.db import _schema_connect_args
+
+        args = _schema_connect_args("postgresql+psycopg://u@h/db", "fin tax")
+        assert args["connect_args"]["options"] == '-csearch_path="fin\\ tax",public'
+
+    def test_embedded_quote_is_doubled(self):
+        from taxwatch.db import _libpq_schema
+
+        assert _libpq_schema('od"d') == '"od""d"'
 
     def test_no_schema_configured_adds_nothing(self):
         from taxwatch.db import _schema_connect_args
