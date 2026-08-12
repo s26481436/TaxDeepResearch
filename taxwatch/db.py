@@ -38,10 +38,23 @@ def _schema_connect_args(url: str, schema: str) -> dict:
 
     Naming a schema that does not exist yet is legal in PostgreSQL — it is
     ignored until created — so this is safe ahead of `CREATE SCHEMA`.
+
+    The name is quoted as an identifier and then escaped for libpq. Dropping
+    either step bites on real schema names: `fin-tax` survives unquoted by
+    luck, but a name containing a space splits the libpq option list and the
+    connection fails outright with an opaque "connection failed".
     """
     if not schema or not url.startswith("postgresql"):
         return {}
-    return {"connect_args": {"options": f"-csearch_path={schema},public"}}
+    return {"connect_args": {"options": f"-csearch_path={_libpq_schema(schema)},public"}}
+
+
+def _libpq_schema(schema: str) -> str:
+    """Quote a schema name for `search_path`, then escape it for a libpq option."""
+    quoted = '"' + schema.replace('"', '""') + '"'
+    # libpq splits options on whitespace and treats backslash as an escape, so
+    # both have to be escaped — backslashes first, or the escapes get escaped.
+    return quoted.replace("\\", "\\\\").replace(" ", "\\ ")
 
 
 def get_session_factory() -> sessionmaker[Session]:
