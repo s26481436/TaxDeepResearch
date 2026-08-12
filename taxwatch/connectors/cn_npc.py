@@ -182,7 +182,7 @@ def _parse_date(raw: str) -> datetime | None:
         return None
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%Y.%m.%d", "%Y年%m月%d日"):
         try:
-            return datetime.strptime(raw[:len(fmt) + 4].strip(), fmt)
+            return datetime.strptime(raw[: len(fmt) + 4].strip(), fmt)
         except ValueError:
             continue
     return None
