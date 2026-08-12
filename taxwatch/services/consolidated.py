@@ -69,6 +69,12 @@ class ConsolidatedArticle:
 def get_consolidated(session: Session, external_id: str) -> dict[str, Any]:
     """A statute's current text with each article's implementing provisions.
 
+    When the requested document is a child (e.g. 实施条例), the view walks UP
+    to the parent statute first — so the parent's articles are shown with both
+    the child's and grandchildren's provisions as supplements. This is what
+    ``extract_for_document`` needs: a single call produces the full family view
+    regardless of which level the user named.
+
     Raises DocumentNotFound if nothing matches `external_id`.
     """
     doc = find_document(session, external_id)
@@ -76,6 +82,19 @@ def get_consolidated(session: Session, external_id: str) -> dict[str, Any]:
     articles = _provisions(session, snapshot.id) if snapshot else []
 
     doc_key = _document_key(articles, doc)
+
+    # If this document is a child, walk up to the parent so the consolidated
+    # view starts from the statute (母法) rather than the regulation.
+    root_doc, root_key = _find_root(session, doc, doc_key)
+    if root_doc.id != doc.id:
+        root_snapshot = _latest_snapshot(session, root_doc.id)
+        root_articles = _provisions(session, root_snapshot.id) if root_snapshot else []
+        if root_articles:
+            doc = root_doc
+            snapshot = root_snapshot
+            articles = root_articles
+            doc_key = root_key
+
     supplements = _supplements_by_article(session, doc_key)
 
     consolidated = [
@@ -88,17 +107,11 @@ def get_consolidated(session: Session, external_id: str) -> dict[str, Any]:
         for p in articles
     ]
 
-    # Child provisions written against the document as a whole rather than a
-    # numbered article — a 公告 that implements the statute generally. They
-    # belong in the view, but under no single article.
-    #
-    # A 依据 clause usually names both (「根据《消费税法》第四条」), so the same
-    # provision arrives here and against the article. The article placement is
-    # strictly more informative, so drop the general one when both exist.
     anchored_nodes = {s.node_key for article in consolidated for s in article.supplements}
     unanchored = [s for s in supplements.get(doc_key, []) if s.node_key not in anchored_nodes]
 
-    children = get_family(session, doc_key)["children"]
+    family = get_family(session, doc_key)
+    children = family["children"]
 
     return {
         "external_id": doc.external_id,
@@ -127,6 +140,43 @@ def get_consolidated(session: Session, external_id: str) -> dict[str, Any]:
 
 
 # ---------- internals ----------
+
+
+def _find_root(session: Session, doc: Document, doc_key: str) -> tuple[Document, str]:
+    """Walk from a child document up to the root statute.
+
+    Returns (root_document, root_key). If the document has no parent or the
+    parent has no record in the database, returns the input unchanged.
+    """
+    from taxwatch.graph.hierarchy import derive_parent_key
+
+    visited: set[str] = {doc_key}
+    current_doc, current_key = doc, doc_key
+
+    for _ in range(5):
+        family = get_family(session, current_key)
+        parents = family["parents"]
+
+        # Also try title-derived parent if graph has no edges yet.
+        parent_key = derive_parent_key(current_key)
+
+        if parents:
+            parent_entity = parents[0]
+            parent_doc = _document_for_key(session, parent_entity.entity_key)
+            if parent_doc is not None and parent_entity.entity_key not in visited:
+                visited.add(parent_entity.entity_key)
+                current_doc, current_key = parent_doc, parent_entity.entity_key
+                continue
+        elif parent_key and parent_key not in visited:
+            parent_doc = _document_for_key(session, parent_key)
+            if parent_doc is not None:
+                visited.add(parent_key)
+                current_doc, current_key = parent_doc, parent_key
+                continue
+
+        break
+
+    return current_doc, current_key
 
 
 def _supplements_by_article(session: Session, doc_key: str) -> dict[str, list[Supplement]]:

@@ -82,9 +82,11 @@ def extract_for_document(
         output_model=RequirementSetOut,
     )
 
+    child_titles = [c["title"] for c in view.get("child_documents", [])]
     stats: dict[str, Any] = {
         "tax_key": resolved_tax_key,
         "source_document": view["title"],
+        "child_documents": child_titles,
         "provisions_supplied": len(allowed_nodes),
         "requirements": len(result.requirements),
         "unresolved": result.unresolved,

@@ -236,6 +236,30 @@ class TestConsolidatedView:
         view = svc.get_consolidated(session, "中华人民共和国增值税法实施条例")
         assert all(not a["supplements"] for a in view["articles"])
 
+    def test_calling_on_child_walks_up_to_parent(self, session, consumption_tax):
+        """extract-requirements on the 实施条例 should still show the 母法."""
+        view = svc.get_consolidated(session, "中华人民共和国消费税法实施条例")
+        assert view["title"] == "中华人民共和国消费税法"
+        assert view["statistics"]["article_count"] == 2
+
+    def test_walk_up_stays_on_child_when_parent_has_no_provisions(self, session):
+        """If the parent law isn't crawled, the child's own articles are used."""
+        _ingest(
+            session,
+            "中华人民共和国增值税法实施条例",
+            DocType.REGULATION,
+            datetime(2025, 1, 1),
+            [
+                ("3", "本条例所称销售额，是指全部价款。"),
+                ("4", "本条例第三条所称价款，不包括代收款项。"),
+            ],
+        )
+        session.commit()
+
+        view = svc.get_consolidated(session, "中华人民共和国增值税法实施条例")
+        assert view["title"] == "中华人民共和国增值税法实施条例"
+        assert view["statistics"]["article_count"] == 2
+
     def test_unknown_document(self, session):
         with pytest.raises(svc.DocumentNotFound):
             svc.get_consolidated(session, "no-such-law")

@@ -252,6 +252,8 @@ def extract_requirements(
         f"\n稅種 {stats['tax_key']} — 依據《{stats['source_document']}》"
         f"（{stats['provisions_supplied']} 條）"
     )
+    for child in stats.get("child_documents", []):
+        typer.echo(f"  ├ 子法：{child}")
     typer.echo(f"抽出 {stats['requirements']} 個課稅情境")
     if stats["dropped_citations"]:
         # The model naming provisions that were never supplied is the failure
