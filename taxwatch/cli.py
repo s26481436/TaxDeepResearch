@@ -182,12 +182,8 @@ def import_corpus(
     )
 
 
-# The source that carries a jurisdiction's primary legislation. 母法 and 子法
-# come from different publishers in CN — 全国人大 enacts 增值税法, while 国家
-# 税务总局's 法规库 carries the 实施条例 — so a corpus can hold every child and
-# still be missing every parent.
 _PRIMARY_LAW_SOURCE = {
-    "CN": "cn-npc",
+    "CN": "cn-chinatax",
     "TW": "tw-moj-law",
     "US": "us-ecfr",
 }

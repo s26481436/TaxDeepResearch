@@ -34,38 +34,27 @@ sources:
     config:
       base_url: "https://cons.judicial.gov.tw"
 
-  cn-npc:
-    country: CN
-    connector: cn_npc
-    description: "国家法律法规数据库 — 全国人大税收本法（增值税法、企业所得税法等）"
-    enabled: true
-    config:
-      keywords:
-        - 增值税法
-        - 企业所得税法
-        - 个人所得税法
-        - 税收征收管理法
-        - 印花税法
-        - 契税法
-        - 城市维护建设税法
-        - 车船税法
-        - 环境保护税法
-        - 资源税法
-        - 耕地占用税法
-        - 烟叶税法
-        - 船舶吨税法
-        - 车辆购置税法
-
   cn-chinatax:
     country: CN
     connector: cn_chinatax
-    description: "国家税务总局 — 税收法规与规范性文件"
+    description: "国家税务总局政策法规库 — 母法（法律/行政法规）+ 部门规章 + 规范性文件"
     enabled: true
     config:
-      # Documents come from the fgk 政策法规库 JSON search backend; the legacy
-      # www.chinatax.gov.cn/chinatax/n<id>/ listing pages are retired and 404.
-      # `column`/`label` already scope the query to tax law, so no keyword
-      # filter is applied (set `keywords` here to narrow by title).
+      # Documents come from the fgk 政策法规库 JSON search backend at
+      # fgk.chinatax.gov.cn (backed by www.chinatax.gov.cn/search5/search/s).
+      # Labels 「法律」「行政法规」 cover the 母法 (增值税法, 企业所得税法 etc.);
+      # the remaining labels cover 子法 and 公告.  No separate cn-npc source
+      # is needed — the NPC database (flk.npc.gov.cn) is defunct.
+      #
+      # fgk 分類頁面參考：
+      #   法律法規（母法）  /zcfgk/c100009/listflfg_fg.html
+      #   行政法規          /zcfgk/c100010/listflfg_fg.html
+      #   國務院文件        /zcfgk/c102440/listflfg.html
+      #   稅務部門規章      /zcfgk/c100011/list_guizhang.html
+      #   財稅文件          /zcfgk/c102416/listflfg.html
+      #   稅務規範性文件    /zcfgk/c100012/listflfg.html
+      #   其他文件          /zcfgk/c100013/listflfg.html
+      #   工作通知          /zcfgk/c102424/listflfg.html
       columns: "政策法规,政策解读,政策指引"
       labels: "法律,行政法规,国务院文件,税务部门规章,税务规范性文件,财税文件"
       max_pages: 10
