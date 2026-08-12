@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from taxwatch.normalize.base import Normalizer
+from taxwatch.normalize.cn_npc_json import CnNpcJsonNormalizer
 from taxwatch.normalize.cn_tax_html import CnTaxHtmlNormalizer
 from taxwatch.normalize.tw_law_json import TwLawJsonNormalizer
 from taxwatch.normalize.tw_ruling_html import TwRulingHtmlNormalizer
@@ -13,6 +14,7 @@ _NORMALIZER_MAP: dict[str, Normalizer] = {
     "tw_moj_law": TwLawJsonNormalizer(),
     "tw_mof_ruling": TwRulingHtmlNormalizer(),
     "tw_constitutional": TwRulingHtmlNormalizer(),
+    "cn_npc": CnNpcJsonNormalizer(),
     "cn_chinatax": CnTaxHtmlNormalizer(),
     "cn_mof": CnTaxHtmlNormalizer(),
     "us_ecfr": UsCfrXmlNormalizer(),
