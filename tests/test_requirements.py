@@ -30,7 +30,7 @@ from taxwatch.models import (
     Source,
     TaxRequirement,
 )
-from taxwatch.requirements.extract import extract_for_document
+from taxwatch.requirements.extract import MissingParentLaw, extract_for_document
 from taxwatch.requirements.fields import DERIVABLE_FIELD_KEYS, FIELD_KEYS
 from taxwatch.requirements.schema import (
     ProvisionCitation,
@@ -254,6 +254,85 @@ class TestExtraction:
 
         assert stats["preview"][0]["scenario"] == "一般貨物及勞務銷售"
         assert session.query(TaxRequirement).count() == 0
+
+
+class TestOrphanedChildDocument:
+    """A 实施条例 without its statute cannot support 申報規範.
+
+    It defines the terms the statute introduces and nothing else: no 納稅義務人,
+    no 課稅範圍, no 申報期限. Extracting from it produces rows resting on
+    articles that were never supplied — the one failure mode this pipeline
+    exists to prevent.
+    """
+
+    @pytest.fixture
+    def orphan_regulation(self, session):
+        source = session.query(Source).filter_by(key="cn-chinatax").first()
+        if source is None:
+            source = Source(key="cn-chinatax", country="CN", connector="cn_chinatax")
+            session.add(source)
+            session.flush()
+
+        doc = Document(
+            source_id=source.id,
+            external_id="cn-vat-regulation",
+            doc_type=DocType.REGULATION,
+            title="中华人民共和国增值税法实施条例",
+            issued_at=datetime(2025, 1, 1),
+        )
+        session.add(doc)
+        session.flush()
+
+        snapshot = Snapshot(
+            document_id=doc.id,
+            content_hash="vat-reg-v1",
+            issued_at=datetime(2025, 1, 1),
+            fetched_at=datetime(2026, 8, 11),
+        )
+        session.add(snapshot)
+        session.flush()
+
+        text = "本条例所称销售货物，是指有偿转让货物所有权。"
+        session.add(
+            ProvisionNode(
+                snapshot_id=snapshot.id,
+                node_key="增值税法实施条例#3",
+                heading="第三条",
+                text=text,
+                text_hash=hashlib.sha256(text.encode()).hexdigest(),
+            )
+        )
+        session.commit()
+        return doc
+
+    def test_refuses_and_names_the_statute_it_needs(self, session, orphan_regulation):
+        with pytest.raises(MissingParentLaw) as caught:
+            _extract(session, _model_output([]), external_id="cn-vat-regulation")
+        assert caught.value.parent_key == "增值税法"
+        assert caught.value.status == "missing"
+        assert session.query(TaxRequirement).count() == 0
+
+    def test_allow_child_overrides_the_refusal(self, session, orphan_regulation):
+        client = MagicMock(model="test-model")
+        client.generate_structured.return_value = _model_output(
+            [RequirementFieldOut(field_key="rate", value="13%")]
+        )
+        with patch("taxwatch.requirements.extract.get_llm_client", return_value=client):
+            stats = extract_for_document(session, "cn-vat-regulation", allow_child=True)
+
+        # ...but the result carries the caveat, so no reader takes the rows as
+        # resting on the statute.
+        assert stats["missing_parent"] == {"key": "增值税法", "status": "missing"}
+        assert stats["requirements"] == 1
+
+    def test_the_statute_being_present_lifts_the_refusal(self, session, vat_law, orphan_regulation):
+        stats = _extract(
+            session,
+            _model_output([RequirementFieldOut(field_key="rate", value="13%")]),
+            external_id="cn-vat-regulation",
+        )
+        assert stats["source_document"] == "中华人民共和国增值税法"
+        assert stats["missing_parent"] is None
 
 
 # ---------------------------------------------------------------------------

@@ -50,6 +50,23 @@ class NoSourceDocument(LookupError):
     """Raised when no monitored document can act as the basis for a tax type."""
 
 
+class MissingParentLaw(LookupError):
+    """Raised when only the 子法 is on file and the 母法 it implements is not.
+
+    An 实施条例 read alone is not the rule. It defines terms the statute
+    introduces — 销售货物, 应税交易 — without ever stating who owes the tax, on
+    what, or when; those are the statute's articles. Extracting 申報規範 from it
+    would produce rows whose 課稅情境 nothing in the supplied text establishes,
+    which is exactly the material this pipeline refuses to invent.
+    """
+
+    def __init__(self, child_title: str, parent_key: str, status: str):
+        super().__init__(parent_key)
+        self.child_title = child_title
+        self.parent_key = parent_key
+        self.status = status
+
+
 def extract_for_document(
     session: Session,
     external_id: str,
@@ -57,9 +74,23 @@ def extract_for_document(
     country: str = "CN",
     tax_key: str | None = None,
     dry_run: bool = False,
+    allow_child: bool = False,
 ) -> dict[str, Any]:
-    """Extract 申報規範 for one statute and everything implementing it."""
+    """Extract 申報規範 for one statute and everything implementing it.
+
+    Refuses to run against an orphaned 子法 unless `allow_child` is set: the
+    caller asked for a tax's reporting rules, and a regulation without its
+    statute cannot supply them.
+    """
     view = get_consolidated(session, external_id)
+    missing_parent = view.get("missing_parent")
+    if missing_parent and not allow_child:
+        raise MissingParentLaw(
+            view["title"],
+            missing_parent["key"],
+            missing_parent["status"],
+        )
+
     document = session.query(Document).filter_by(external_id=view["external_id"]).first()
 
     resolved_tax_key = tax_key or _infer_tax_key(view["title"])
@@ -87,6 +118,7 @@ def extract_for_document(
         "tax_key": resolved_tax_key,
         "source_document": view["title"],
         "child_documents": child_titles,
+        "missing_parent": missing_parent,
         "provisions_supplied": len(allowed_nodes),
         "requirements": len(result.requirements),
         "unresolved": result.unresolved,

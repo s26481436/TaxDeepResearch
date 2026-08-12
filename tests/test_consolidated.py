@@ -259,6 +259,12 @@ class TestConsolidatedView:
         view = svc.get_consolidated(session, "中华人民共和国增值税法实施条例")
         assert view["title"] == "中华人民共和国增值税法实施条例"
         assert view["statistics"]["article_count"] == 2
+        # ...and the view says so, so nothing downstream mistakes the 实施条例
+        # for the statute it implements.
+        assert view["missing_parent"] == {"key": "增值税法", "status": "missing"}
+
+    def test_view_rooted_at_a_statute_reports_no_missing_parent(self, session, consumption_tax):
+        assert svc.get_consolidated(session, "中华人民共和国消费税法")["missing_parent"] is None
 
     def test_unknown_document(self, session):
         with pytest.raises(svc.DocumentNotFound):
