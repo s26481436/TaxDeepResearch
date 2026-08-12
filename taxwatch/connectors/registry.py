@@ -19,7 +19,6 @@ def get_connector(key: str, config: dict) -> Connector:
 def _load_builtins():
     from taxwatch.connectors.cn_chinatax import CnChinataxConnector
     from taxwatch.connectors.cn_mof import CnMofConnector
-    from taxwatch.connectors.cn_npc import CnNpcConnector
     from taxwatch.connectors.tw_constitutional import TwConstitutionalConnector
     from taxwatch.connectors.tw_mof_ruling import TwMofRulingConnector
     from taxwatch.connectors.tw_moj_law import TwMojLawConnector
@@ -35,7 +34,6 @@ def _load_builtins():
         UsFederalRegisterConnector,
         CnChinataxConnector,
         CnMofConnector,
-        CnNpcConnector,
         UsEcfrConnector,
         UsGovinfoConnector,
         UsStateTaxConnector,
