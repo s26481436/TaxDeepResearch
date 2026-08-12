@@ -18,6 +18,7 @@ from taxwatch.connectors.base import DocumentRef
 from taxwatch.connectors.cn_chinatax import (
     CnChinataxConnector,
     _id_from_url,
+    _infer_doc_type,
     _parse_api_date,
     _wenhao_from_article,
 )
@@ -136,7 +137,7 @@ class TestDiscover:
         first = refs[0]
         assert first.external_id == "c5251620"
         assert first.issued_at == datetime(2026, 7, 31)
-        assert first.doc_type == "regulation"
+        assert first.doc_type == "announcement"
         assert first.url.startswith("https://")  # http:// upgraded
         assert first.metadata["title"] == first.title
         assert first.metadata["effect_level"] == "税务规范性文件"
@@ -258,3 +259,46 @@ class TestFetch:
         with patch("taxwatch.connectors.cn_chinatax.fetch_with_retry", side_effect=error):
             with pytest.raises(httpx.HTTPStatusError):
                 connector.fetch(ref)
+
+
+class TestInferDocType:
+    @pytest.mark.parametrize(
+        "title,label,expected",
+        [
+            ("中华人民共和国增值税法", "法律", "statute"),
+            ("中华人民共和国增值税法实施条例", "行政法规", "regulation"),
+            ("国务院关于印发全面推开营改增试点后调整中央与地方增值税收入划分过渡方案的通知", "国务院文件", "announcement"),
+            ("国家税务总局关于电池消费税征收管理有关事项的公告", "税务规范性文件", "announcement"),
+            ("财政部关于开展全面推开营改增试点前期准备工作的通知", "财税文件", "announcement"),
+            ("国务院关于废止部分行政法规的决定", "国务院文件", "announcement"),
+            ("增值税一般纳税人登记管理办法", "税务部门规章", "announcement"),
+            ("税务稽查案件办理程序规定", "税务部门规章", "regulation"),
+            ("消费税暂行条例", "行政法规", "statute"),
+        ],
+    )
+    def test_title_overrides_label(self, title, label, expected):
+        assert _infer_doc_type(title, label) == expected
+
+
+class TestDeriveParentFromTitle:
+    def test_quoted_statute_in_title(self):
+        from taxwatch.graph.hierarchy import derive_parent_from_title
+
+        title = "国务院关于实施《中华人民共和国增值税法》若干问题的通知"
+        assert derive_parent_from_title(title, "announcement") == "中华人民共和国增值税法"
+
+    def test_keyword_match(self):
+        from taxwatch.graph.hierarchy import derive_parent_from_title
+
+        title = "国务院关于印发全面推开营改增试点后调整中央与地方增值税收入划分过渡方案的通知"
+        assert derive_parent_from_title(title, "announcement") == "增值税法"
+
+    def test_statute_returns_none(self):
+        from taxwatch.graph.hierarchy import derive_parent_from_title
+
+        assert derive_parent_from_title("中华人民共和国增值税法", "statute") is None
+
+    def test_no_match_returns_none(self):
+        from taxwatch.graph.hierarchy import derive_parent_from_title
+
+        assert derive_parent_from_title("关于加强财政管理工作的通知", "announcement") is None

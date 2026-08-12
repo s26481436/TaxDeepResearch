@@ -95,6 +95,50 @@ def is_child_of(child_key: str, parent_key: str) -> bool:
     return derive_parent_key(child_key) == parent_key.split("#", 1)[0]
 
 
+_TITLE_STATUTE_RE = re.compile(
+    r"《([一-鿿]{4,30}(?:法|條例|条例|暫行條例|暂行条例))》"
+)
+
+_CN_STATUTE_KEYWORDS: tuple[tuple[str, str], ...] = (
+    ("增值税", "增值税法"),
+    ("增值稅", "增值稅法"),
+    ("消费税", "消费税法"),
+    ("消費稅", "消費稅法"),
+    ("企业所得税", "企业所得税法"),
+    ("企業所得稅", "企業所得稅法"),
+    ("个人所得税", "个人所得税法"),
+    ("個人所得稅", "個人所得稅法"),
+    ("契税", "契税法"),
+    ("契稅", "契稅法"),
+    ("印花税", "印花税法"),
+    ("印花稅", "印花稅法"),
+    ("车辆购置税", "车辆购置税法"),
+    ("车船税", "车船税法"),
+    ("资源税", "资源税法"),
+    ("环境保护税", "环境保护税法"),
+    ("城市维护建设税", "城市维护建设税法"),
+    ("耕地占用税", "耕地占用税法"),
+    ("烟叶税", "烟叶税法"),
+    ("船舶吨税", "船舶吨税法"),
+    ("土地增值税", "土地增值税暂行条例"),
+    ("房产税", "房产税暂行条例"),
+    ("城镇土地使用税", "城镇土地使用税暂行条例"),
+    ("税收征收管理", "税收征收管理法"),
+    ("税收征管", "税收征收管理法"),
+)
+
+
+def derive_parent_from_title(title: str, own_doc_type: str) -> str | None:
+    if own_doc_type == "statute":
+        return None
+    for m in _TITLE_STATUTE_RE.finditer(title):
+        return m.group(1)
+    for keyword, statute in _CN_STATUTE_KEYWORDS:
+        if keyword in title:
+            return statute
+    return None
+
+
 def register_document_hierarchy(
     session: Session,
     document: Document,
@@ -114,6 +158,10 @@ def register_document_hierarchy(
         entity.current_document_id = document.id
 
     parent_key = derive_parent_key(doc_entity_key)
+    if not parent_key:
+        parent_key = derive_parent_from_title(
+            document.title, document.doc_type.value if hasattr(document.doc_type, "value") else str(document.doc_type)
+        )
     if not parent_key:
         return None
 
@@ -229,6 +277,14 @@ def build_forest(
     for key, node in nodes.items():
         parent_key = derive_parent_key(key)
         parent = nodes.get(parent_key) if parent_key else None
+        if parent is None:
+            title_parent = derive_parent_from_title(
+                node.document.get("title", ""),
+                node.document.get("doc_type", ""),
+            )
+            if title_parent:
+                from taxwatch.graph.resolver import normalize_entity_key
+                parent = nodes.get(normalize_entity_key(title_parent))
         if parent is not None and parent is not node:
             parent.children.append(node)
         else:

@@ -41,15 +41,46 @@ _DEFAULT_LABELS = "法律,行政法规,国务院文件,税务部门规章,税务
 _PAGE_SIZE = 10
 _DEFAULT_MAX_PAGES = 10
 
-_DOC_TYPE_MAP = {
+_TITLE_DOC_TYPE = (
+    ("实施条例", "regulation"),
+    ("實施條例", "regulation"),
+    ("实施细则", "regulation"),
+    ("實施細則", "regulation"),
+    ("实施办法", "regulation"),
+    ("實施辦法", "regulation"),
+    ("施行细则", "regulation"),
+    ("施行細則", "regulation"),
+    ("的决定", "announcement"),
+    ("的決定", "announcement"),
+    ("的通知", "announcement"),
+    ("的公告", "announcement"),
+    ("管理办法", "announcement"),
+    ("管理辦法", "announcement"),
+    ("的规定", "announcement"),
+    ("的規定", "announcement"),
+    ("的意见", "announcement"),
+    ("的意見", "announcement"),
+    ("的批复", "ruling"),
+    ("的批復", "ruling"),
+    ("的函", "ruling"),
+    ("过渡方案", "announcement"),
+    ("過渡方案", "announcement"),
+    ("试点方案", "announcement"),
+    ("試點方案", "announcement"),
+    ("税法", "statute"),
+    ("暂行条例", "statute"),
+    ("暫行條例", "statute"),
+)
+
+_LABEL_DOC_TYPE_MAP = {
     "法律": "statute",
     "行政法规": "statute",
-    "国务院文件": "statute",
     "部门规章": "regulation",
     "税务部门规章": "regulation",
-    "规范性文件": "regulation",
-    "税务规范性文件": "regulation",
-    "财税文件": "regulation",
+    "国务院文件": "announcement",
+    "规范性文件": "announcement",
+    "税务规范性文件": "announcement",
+    "财税文件": "announcement",
     "公告": "announcement",
     "通知": "announcement",
     "批复": "ruling",
@@ -127,9 +158,10 @@ class CnChinataxConnector(Connector):
                     break
 
                 ref = self._to_ref(entry, issued_at, keywords)
-                if ref is None or ref.url in seen:
+                if ref is None or ref.url in seen or ref.external_id in seen:
                     continue
                 seen.add(ref.url)
+                seen.add(ref.external_id)
                 refs.append(ref)
 
             if reached_cutoff:
@@ -156,7 +188,7 @@ class CnChinataxConnector(Connector):
         return DocumentRef(
             external_id=wenhao or _id_from_url(url) or title[:80],
             title=title,
-            doc_type=_infer_doc_type(f"{label}{title}"),
+            doc_type=_infer_doc_type(title, label),
             url=url,
             issued_at=issued_at,
             metadata={
@@ -262,8 +294,11 @@ def _id_from_url(url: str) -> str | None:
     return None
 
 
-def _infer_doc_type(text: str) -> str:
-    for keyword, dtype in _DOC_TYPE_MAP.items():
-        if keyword in text:
+def _infer_doc_type(title: str, label: str = "") -> str:
+    for keyword, dtype in _TITLE_DOC_TYPE:
+        if keyword in title:
+            return dtype
+    for keyword, dtype in _LABEL_DOC_TYPE_MAP.items():
+        if keyword in label:
             return dtype
     return "announcement"

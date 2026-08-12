@@ -237,6 +237,14 @@ def _ensure_document(session: Session, source: Source, ref: Any) -> Document:
         session.query(Document).filter_by(source_id=source.id, external_id=ref.external_id).first()
     )
     if not doc:
+        doc = (
+            session.query(Document)
+            .filter_by(source_id=source.id, title=ref.title)
+            .first()
+        )
+        if doc:
+            doc.external_id = ref.external_id
+    if not doc:
         doc = Document(
             source_id=source.id,
             external_id=ref.external_id,
@@ -262,6 +270,13 @@ def _ensure_document(session: Session, source: Source, ref: Any) -> Document:
         doc.url = ref.url
     if ref.issued_at and ref.issued_at != doc.issued_at:
         doc.issued_at = ref.issued_at
+    new_doc_type = (
+        DocType(ref.doc_type)
+        if ref.doc_type in DocType.__members__.values()
+        else DocType.STATUTE
+    )
+    if new_doc_type != doc.doc_type:
+        doc.doc_type = new_doc_type
     return doc
 
 

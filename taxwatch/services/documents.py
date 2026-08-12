@@ -185,7 +185,11 @@ def list_documents(
 
     classify_doc = make_classifier(session)
     rows: list[dict[str, Any]] = []
+    seen_titles: set[str] = set()
     for doc, source in query.limit(limit).all():
+        if doc.title in seen_titles:
+            continue
+        seen_titles.add(doc.title)
         tax_type = classify_doc(doc.title, doc.external_id)
         if tax_key and tax_type.key != tax_key:
             continue
