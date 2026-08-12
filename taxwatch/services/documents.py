@@ -17,6 +17,8 @@ from sqlalchemy.orm import Session
 
 from taxwatch.corpus.store import make_classifier
 from taxwatch.diff.engine import diff_provisions
+from taxwatch.graph.hierarchy import derive_parent_key
+from taxwatch.graph.resolver import normalize_entity_key
 from taxwatch.models import Change, Document, ProvisionNode, Snapshot, Source
 from taxwatch.normalize.base import ProvisionData
 
@@ -36,6 +38,23 @@ class AmbiguousDocument(LookupError):
         super().__init__(term)
         self.term = term
         self.candidates = candidates
+
+
+class ParentLawMissing(LookupError):
+    """Raised when a query names a statute we hold only the 子法 for.
+
+    《中华人民共和国增值税法实施条例》 contains 《中华人民共和国增值税法》 as a
+    literal prefix, so a substring search for the 母法 matches the 子法 — and
+    when the 母法 has not been ingested that child is the *only* match, which
+    the plain fallback would return as though it were the thing asked for.
+    Answering a question about a statute with its implementing regulation is
+    wrong in a way nobody downstream can detect, so say so instead.
+    """
+
+    def __init__(self, term: str, children: list[str]):
+        super().__init__(term)
+        self.term = term
+        self.children = children
 
 
 class SnapshotNotFound(LookupError):
@@ -62,6 +81,15 @@ def find_document(session: Session, external_id: str) -> Document:
     title — 增值税法 for 中华人民共和国增值税法 — is what makes the CLI usable
     at all, and an ambiguous fragment reports the candidates rather than
     silently picking one.
+
+    Two things a bare substring search gets wrong, and this does not:
+
+    * A law's working name is the same law. 增值税法 and 中华人民共和国增值税法
+      normalise to one graph key, so the fragment names the statute exactly
+      rather than sitting ambiguously between it and its 实施条例.
+    * A 子法 is never a stand-in for its 母法. If every match merely descends
+      from what was asked for, the statute itself is missing — raise rather
+      than hand back the regulation.
     """
     doc = session.query(Document).filter_by(external_id=external_id).first()
     if doc is not None:
@@ -74,12 +102,43 @@ def find_document(session: Session, external_id: str) -> Document:
     term = external_id.strip()
     if term:
         matches = session.query(Document).filter(Document.title.contains(term)).all()
+
+        wanted = normalize_entity_key(term)
+        named = [d for d in matches if normalize_entity_key(d.title) == wanted]
+        if len(named) == 1:
+            return named[0]
+
+        if matches and all(_descends_from(d.title, wanted) for d in matches):
+            raise ParentLawMissing(term, sorted(d.title for d in matches))
         if len(matches) == 1:
             return matches[0]
         if matches:
             raise AmbiguousDocument(term, sorted(d.title for d in matches))
 
     raise DocumentNotFound(external_id)
+
+
+# A 子法 chain is at most 母法 → 實施條例 → 施行細則 in practice; the bound just
+# stops a pathological title from looping.
+_MAX_HIERARCHY_DEPTH = 4
+
+
+def _descends_from(title: str, parent_key: str) -> bool:
+    """Is `title` an implementing regulation *under* `parent_key`?
+
+    Title-derived only, which is the case that matters here: the child that
+    shadows its parent in a substring search is precisely the one that spells
+    the parent out in its own name.
+    """
+    key = normalize_entity_key(title)
+    for _ in range(_MAX_HIERARCHY_DEPTH):
+        derived = derive_parent_key(key)
+        if derived is None:
+            return False
+        if derived == parent_key:
+            return True
+        key = derived
+    return False
 
 
 def suggest_documents(session: Session, term: str, *, limit: int = 10) -> list[dict[str, Any]]:

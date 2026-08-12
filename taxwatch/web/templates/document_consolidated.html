@@ -15,6 +15,18 @@
   合併檢視
 </div>
 
+{% if view.missing_parent %}
+<div class="panel">
+  <div class="panel-bd">
+    <p style="color:var(--warn,#b45309)">
+      ⚠ 本頁以子法為主體：其母法《{{ view.missing_parent.key }}》
+      {% if view.missing_parent.status == "missing" %}尚未收錄{% else %}已收錄但條文尚未解析{% endif %}。
+      子法只界定母法用語，不含納稅義務人、課稅範圍與申報期限，請勿逕以本頁作為完整依據。
+    </p>
+  </div>
+</div>
+{% endif %}
+
 <div class="panel">
   <div class="panel-hd">
     <h2>子法與相關規定</h2>

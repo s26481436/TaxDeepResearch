@@ -146,12 +146,39 @@ class TestFindDocumentByFragment:
         assert svc.find_document(cn_docs, "消费税法").external_id == "c5250999"
 
     def test_ambiguous_fragment_reports_candidates(self, cn_docs):
+        from taxwatch.models import DocType, Source
+        from taxwatch.models import Document as Doc
+
+        source = cn_docs.query(Source).filter_by(key="cn-chinatax").one()
+        cn_docs.add(
+            Doc(
+                source_id=source.id,
+                external_id="c5250888",
+                doc_type=DocType.STATUTE,
+                title="中华人民共和国企业所得税法",
+            )
+        )
+        cn_docs.add(
+            Doc(
+                source_id=source.id,
+                external_id="c5250889",
+                doc_type=DocType.STATUTE,
+                title="中华人民共和国个人所得税法",
+            )
+        )
+        cn_docs.commit()
+
         with pytest.raises(svc.AmbiguousDocument) as caught:
-            svc.find_document(cn_docs, "增值税法")
+            svc.find_document(cn_docs, "所得税法")
         assert caught.value.candidates == [
-            "中华人民共和国增值税法",
-            "中华人民共和国增值税法实施条例",
+            "中华人民共和国个人所得税法",
+            "中华人民共和国企业所得税法",
         ]
+
+    def test_working_name_resolves_to_the_statute_not_its_regulation(self, cn_docs):
+        """增值税法 is the law's working name — and a literal prefix of its own
+        实施条例. The statute is what was asked for."""
+        assert svc.find_document(cn_docs, "增值税法").external_id == "c5251620"
 
     def test_exact_title_wins_over_being_a_prefix_of_another(self, cn_docs):
         """增值税法 is a substring of its own 实施条例, so an exact title must
@@ -162,6 +189,47 @@ class TestFindDocumentByFragment:
     def test_unknown_still_raises(self, cn_docs):
         with pytest.raises(svc.DocumentNotFound):
             svc.find_document(cn_docs, "cn-vat-law")
+
+
+class TestParentLawMissing:
+    """The 子法 must never stand in for the 母法 nobody fetched.
+
+    《…增值税法实施条例》 contains 《…增值税法》 as a prefix, so with the statute
+    absent the regulation is the sole substring match — and used to be returned
+    as though someone had asked for it.
+    """
+
+    @pytest.fixture
+    def child_only(self, session):
+        from taxwatch.models import DocType, Source
+        from taxwatch.models import Document as Doc
+
+        source = Source(key="cn-chinatax", country="CN", connector="cn_chinatax")
+        session.add(source)
+        session.flush()
+        session.add(
+            Doc(
+                source_id=source.id,
+                external_id="c5251406",
+                doc_type=DocType.REGULATION,
+                title="中华人民共和国增值税法实施条例",
+            )
+        )
+        session.commit()
+        return session
+
+    def test_asking_for_the_statute_names_the_children_found_instead(self, child_only):
+        with pytest.raises(svc.ParentLawMissing) as caught:
+            svc.find_document(child_only, "中华人民共和国增值税法")
+        assert caught.value.children == ["中华人民共和国增值税法实施条例"]
+
+    def test_working_name_of_the_statute_raises_too(self, child_only):
+        with pytest.raises(svc.ParentLawMissing):
+            svc.find_document(child_only, "增值税法")
+
+    def test_the_child_itself_still_resolves(self, child_only):
+        doc = svc.find_document(child_only, "增值税法实施条例")
+        assert doc.external_id == "c5251406"
 
 
 class TestSuggestDocuments:

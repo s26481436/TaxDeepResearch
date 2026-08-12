@@ -182,12 +182,36 @@ def import_corpus(
     )
 
 
+# The source that carries a jurisdiction's primary legislation. 母法 and 子法
+# come from different publishers in CN — 全国人大 enacts 增值税法, while 国家
+# 税务总局's 法规库 carries the 实施条例 — so a corpus can hold every child and
+# still be missing every parent.
+_PRIMARY_LAW_SOURCE = {
+    "CN": "cn-npc",
+    "TW": "tw-moj-law",
+    "US": "us-ecfr",
+}
+
+
+def _primary_source(country: str) -> str:
+    return _PRIMARY_LAW_SOURCE.get(country.upper(), "--all")
+
+
+def _echo_ingest_hint(country: str) -> None:
+    typer.echo(f"\n請先擷取母法：taxwatch run --source {_primary_source(country)}")
+
+
 @app.command()
 def extract_requirements(
     document: str = typer.Argument(..., help="法規的 external_id 或標題"),
     country: str = typer.Option("CN", help="轄區代碼"),
     tax_key: str = typer.Option("", help="稅種鍵，留空則從標題推斷"),
     dry_run: bool = typer.Option(False, help="只顯示會抽出什麼，不寫入資料庫"),
+    allow_child: bool = typer.Option(
+        False,
+        "--allow-child",
+        help="母法未收錄時，仍允許只依子法（實施條例等）抽取",
+    ),
 ):
     """從法規條文（含子法與公告）抽取申報規範。
 
@@ -198,10 +222,15 @@ def extract_requirements(
     from taxwatch.config import get_settings
     from taxwatch.db import get_session
     from taxwatch.db import init_db as _init_db
-    from taxwatch.requirements.extract import NoSourceDocument, extract_for_document
+    from taxwatch.requirements.extract import (
+        MissingParentLaw,
+        NoSourceDocument,
+        extract_for_document,
+    )
     from taxwatch.services.documents import (
         AmbiguousDocument,
         DocumentNotFound,
+        ParentLawMissing,
         suggest_documents,
     )
 
@@ -214,11 +243,32 @@ def extract_requirements(
             country=country,
             tax_key=tax_key or None,
             dry_run=dry_run,
+            allow_child=allow_child,
         )
     except AmbiguousDocument as exc:
         typer.echo(f"「{exc.term}」對應到多份法規，請指定其中一份：")
         for title in exc.candidates:
             typer.echo(f"  · {title}")
+        raise typer.Exit(1) from None
+    except ParentLawMissing as exc:
+        typer.echo(f"資料庫裡沒有母法《{exc.term}》，只有它的子法：")
+        for title in exc.children:
+            typer.echo(f"  · {title}")
+        _echo_ingest_hint(country)
+        typer.echo(
+            f"若確定要只依子法抽取：taxwatch extract-requirements {exc.children[0]} --allow-child"
+        )
+        raise typer.Exit(1) from None
+    except MissingParentLaw as exc:
+        reason = "尚未收錄" if exc.status == "missing" else "已收錄但條文未解析"
+        typer.echo(f"《{exc.child_title}》是子法，其母法《{exc.parent_key}》{reason}。")
+        typer.echo("子法只定義母法用語，不含納稅義務人、課稅範圍與申報期限，")
+        typer.echo("單獨抽取會產出沒有條文依據的課稅情境，因此中止。")
+        if exc.status == "missing":
+            _echo_ingest_hint(country)
+        else:
+            typer.echo(f"\n請重新擷取母法：taxwatch run --source {_primary_source(country)}")
+        typer.echo("仍要只依子法抽取請加上 --allow-child")
         raise typer.Exit(1) from None
     except DocumentNotFound:
         # A bare "not found" is useless when the ids are machine-minted
@@ -252,6 +302,8 @@ def extract_requirements(
         f"\n稅種 {stats['tax_key']} — 依據《{stats['source_document']}》"
         f"（{stats['provisions_supplied']} 條）"
     )
+    if stats.get("missing_parent"):
+        typer.echo(f"⚠ 母法《{stats['missing_parent']['key']}》缺漏，本次僅依子法抽取")
     for child in stats.get("child_documents", []):
         typer.echo(f"  ├ 子法：{child}")
     typer.echo(f"抽出 {stats['requirements']} 個課稅情境")

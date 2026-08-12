@@ -85,7 +85,8 @@ def get_consolidated(session: Session, external_id: str) -> dict[str, Any]:
 
     # If this document is a child, walk up to the parent so the consolidated
     # view starts from the statute (母法) rather than the regulation.
-    root_doc, root_key = _find_root(session, doc, doc_key)
+    root_doc, root_key, unreachable_parent = _find_root(session, doc, doc_key)
+    parent_status: str | None = "missing" if unreachable_parent else None
     if root_doc.id != doc.id:
         root_snapshot = _latest_snapshot(session, root_doc.id)
         root_articles = _provisions(session, root_snapshot.id) if root_snapshot else []
@@ -94,6 +95,11 @@ def get_consolidated(session: Session, external_id: str) -> dict[str, Any]:
             snapshot = root_snapshot
             articles = root_articles
             doc_key = root_key
+        else:
+            # The statute is on file but its body never parsed, so it cannot
+            # anchor anything. Distinct from missing: refetching is the fix,
+            # not re-crawling a source we already have.
+            unreachable_parent, parent_status = root_key, "unparsed"
 
     supplements = _supplements_by_article(session, doc_key)
 
@@ -121,6 +127,13 @@ def get_consolidated(session: Session, external_id: str) -> dict[str, Any]:
         "as_of": snapshot.dated_at.isoformat() if snapshot else None,
         "official_date": bool(snapshot and snapshot.has_official_date),
         "child_documents": [{"key": e.entity_key, "title": e.canonical_title} for e in children],
+        # None when the view is rooted at a statute. Otherwise the 母法 this
+        # view is standing in for, and why it could not be used.
+        "missing_parent": (
+            None
+            if unreachable_parent is None
+            else {"key": unreachable_parent, "status": parent_status}
+        ),
         "statistics": {
             "article_count": len(consolidated),
             "supplemented_count": sum(1 for a in consolidated if a.supplements),
@@ -142,11 +155,14 @@ def get_consolidated(session: Session, external_id: str) -> dict[str, Any]:
 # ---------- internals ----------
 
 
-def _find_root(session: Session, doc: Document, doc_key: str) -> tuple[Document, str]:
+def _find_root(session: Session, doc: Document, doc_key: str) -> tuple[Document, str, str | None]:
     """Walk from a child document up to the root statute.
 
-    Returns (root_document, root_key). If the document has no parent or the
-    parent has no record in the database, returns the input unchanged.
+    Returns (root_document, root_key, unreachable_parent_key). The third value
+    is the parent the walk knows about but could not follow — because that
+    statute has no record in the database. It is the difference between "this
+    *is* the 母法" and "this is a 子法 standing in for a 母法 we never fetched",
+    which callers must not confuse.
     """
     from taxwatch.graph.hierarchy import derive_parent_key
 
@@ -167,16 +183,19 @@ def _find_root(session: Session, doc: Document, doc_key: str) -> tuple[Document,
                 visited.add(parent_entity.entity_key)
                 current_doc, current_key = parent_doc, parent_entity.entity_key
                 continue
+            if parent_doc is None:
+                return current_doc, current_key, parent_entity.entity_key
         elif parent_key and parent_key not in visited:
             parent_doc = _document_for_key(session, parent_key)
             if parent_doc is not None:
                 visited.add(parent_key)
                 current_doc, current_key = parent_doc, parent_key
                 continue
+            return current_doc, current_key, parent_key
 
         break
 
-    return current_doc, current_key
+    return current_doc, current_key, None
 
 
 def _supplements_by_article(session: Session, doc_key: str) -> dict[str, list[Supplement]]:
