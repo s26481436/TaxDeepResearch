@@ -27,6 +27,35 @@ from taxwatch.models import (
 from taxwatch.models import Document as DocumentModel
 
 
+@pytest.fixture(autouse=True)
+def no_live_search(monkeypatch):
+    """Keep the evidence layer off the network unless a test opts in.
+
+    The official policy-library search is enabled by default in production —
+    it costs no quota, so there is no reason for it to be off. That default
+    would otherwise make every analysis test issue a real request to
+    chinatax.gov.cn, which is both slow and a CI dependency on a live site.
+
+    Disabling it through settings rather than stubbing the function keeps the
+    real code path intact: a test that wants official results re-points
+    `fgk_search.get_settings` at an enabled Settings of its own.
+    """
+    from taxwatch.analysis import fgk_search
+    from taxwatch.config import Settings
+
+    monkeypatch.setattr(fgk_search, "get_settings", lambda: Settings(fgk_search_enabled=False))
+
+
+@pytest.fixture(autouse=True)
+def fresh_search_budget():
+    """Give each test its own Brave budget, so caps don't leak between tests."""
+    from taxwatch.analysis import brave_search
+
+    brave_search.reset_budget()
+    yield
+    brave_search.reset_budget()
+
+
 @pytest.fixture
 def session() -> Session:
     # StaticPool + check_same_thread=False so TestClient's worker thread can

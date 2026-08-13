@@ -266,6 +266,33 @@ class CorpusDocument(Base):
         return self.aging in ("全文废止", "全文失效")
 
 
+class SearchCache(Base):
+    """Metered-search responses, kept so a repeated query costs nothing.
+
+    The pipeline is scheduled daily over a corpus that mostly does not change,
+    so without this the same handful of queries is re-billed every run. Keyed
+    by a hash of the query rather than the query itself: the text can be long
+    and is only ever looked up by exact match.
+
+    Entries are not authoritative and may be discarded at any time — a miss
+    simply costs one API call.
+    """
+
+    __tablename__ = "search_cache"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(32), default="brave")
+    query_hash: Mapped[str] = mapped_column(String(64))
+    query: Mapped[str] = mapped_column(Text, default="")
+    results: Mapped[list] = mapped_column(JSON, default=list)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("provider", "query_hash", name="uq_search_cache_provider_query"),
+        Index("ix_search_cache_lookup", "provider", "query_hash"),
+    )
+
+
 # ---------- Filing requirements (申報規範) ----------
 
 
