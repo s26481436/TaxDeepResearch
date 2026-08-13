@@ -48,7 +48,7 @@ def analyze_change(session: Session, change: Change) -> Analysis:
     analysis = Analysis(
         change_id=change.id,
         summary_zh=result.summary_zh,
-        effective_date=result.effective_date,
+        effective_date=result.effective_date[:200] if result.effective_date else "",
         affected_parties=result.affected_parties,
         parent_law_impact=result.parent_law_impact,
         confidence=result.confidence,

@@ -381,7 +381,7 @@ class Analysis(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     change_id: Mapped[int] = mapped_column(ForeignKey("changes.id"), unique=True)
     summary_zh: Mapped[str] = mapped_column(Text, default="")
-    effective_date: Mapped[str] = mapped_column(String(50), default="")
+    effective_date: Mapped[str] = mapped_column(String(200), default="")
     affected_parties: Mapped[list] = mapped_column(JSON, default=list)
     parent_law_impact: Mapped[str] = mapped_column(Text, default="")
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
