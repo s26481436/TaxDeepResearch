@@ -115,9 +115,9 @@ class CnChinataxConnector(Connector):
         max_pages = int(self.source_config.get("max_pages", _DEFAULT_MAX_PAGES))
         keywords = self.source_config.get("keywords") or None
         labels = [
-            l.strip()
-            for l in (self.source_config.get("labels") or _DEFAULT_LABELS).split(",")
-            if l.strip()
+            label.strip()
+            for label in (self.source_config.get("labels") or _DEFAULT_LABELS).split(",")
+            if label.strip()
         ]
 
         refs: list[DocumentRef] = []

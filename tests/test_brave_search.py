@@ -103,10 +103,26 @@ def test_search_degrades_on_transport_error(enabled_settings):
     assert search("企业所得税") == []
 
 
-def test_build_queries_numeric_article():
+def test_build_queries_is_document_level():
+    """One query per document — the article number must not appear in it.
+
+    An article-level query cost one request per changed provision and returned
+    statute-mirror sites rather than anything corroborating the amendment.
+    """
     queries = build_queries("企業所得稅法", "企業所得稅法#28", "小型微利企業減按25%計入")
-    assert "企業所得稅法 第28條" in queries
-    assert "企業所得稅法 修正 生效" in queries
+    assert queries == ["企業所得稅法 修正 生效"]
+    assert not any("28" in q for q in queries)
+
+
+def test_build_queries_does_not_scale_with_change_count():
+    """Fifty changed articles in one document must still be one query."""
+    document_title = "企業所得稅法"
+    all_queries = [
+        q
+        for article in range(1, 51)
+        for q in build_queries(document_title, f"{document_title}#{article}", f"條文{article}內容")
+    ]
+    assert len(set(all_queries)) == 1
 
 
 def test_build_queries_deduplicates_and_skips_short_text():
@@ -115,9 +131,13 @@ def test_build_queries_deduplicates_and_skips_short_text():
     assert all(len(q) >= 2 for q in queries)
 
 
-def test_build_queries_non_numeric_article():
-    queries = build_queries("財稅公告", "财税〔2026〕15号#1", "")
-    assert any("财税〔2026〕15号" in q for q in queries)
+def test_build_queries_falls_back_to_node_key_for_law_name():
+    queries = build_queries("", "财税〔2026〕15号#1", "")
+    assert queries == ["财税〔2026〕15号 修正 生效"]
+
+
+def test_build_queries_empty_without_a_law_name():
+    assert build_queries("", "", "") == []
 
 
 @respx.mock

@@ -7,7 +7,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from taxwatch.analysis.client import get_llm_client
-from taxwatch.analysis.evidence import CORPUS, format_evidence, gather
+from taxwatch.analysis.evidence import CORPUS, Evidence, format_evidence, gather
 from taxwatch.analysis.prompts import ANALYSIS_TEMPLATE, CONTEXT_TEMPLATE, SYSTEM_PROMPT
 from taxwatch.analysis.schema import ChangeAnalysis
 from taxwatch.graph.relations import get_entity_context
@@ -16,15 +16,32 @@ from taxwatch.models import Analysis, Change, Document, ProvisionNode
 logger = logging.getLogger(__name__)
 
 
-def analyze_change(session: Session, change: Change) -> Analysis:
-    """Analyze a single change using LLM with legal graph context."""
+def analyze_change(
+    session: Session,
+    change: Change,
+    *,
+    document_evidence: list[Evidence] | None = None,
+) -> Analysis:
+    """Analyze a single change using LLM with legal graph context.
+
+    `document_evidence` is the external corroboration for the amendment as a
+    whole, fetched once by the caller and shared across the document's
+    changes. Omitting it makes this fetch its own, which is correct but costs
+    a lookup per change.
+    """
     doc = session.get(Document, change.document_id)
     doc_title = doc.title if doc else ""
 
     old_text, new_text = _get_provision_texts(session, change)
     context_section = _build_context_section(session, change.node_key)
 
-    evidence = gather(session, doc_title, change.node_key, new_text or "")
+    evidence = gather(
+        session,
+        doc_title,
+        change.node_key,
+        new_text or "",
+        document_evidence=document_evidence,
+    )
     evidence_section = format_evidence(evidence)
 
     user_prompt = ANALYSIS_TEMPLATE.format(

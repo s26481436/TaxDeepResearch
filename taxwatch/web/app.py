@@ -191,9 +191,7 @@ def requirements_page(
             .order_by(Source.country, Document.title)
             .all()
         )
-        extractable = [
-            {"external_id": d.external_id, "title": d.title} for d in statutes
-        ]
+        extractable = [{"external_id": d.external_id, "title": d.title} for d in statutes]
         return _page(
             request,
             "requirements.html",
@@ -218,7 +216,7 @@ def extract_requirements_web(
     allow_child: bool = Form(False),
 ) -> RedirectResponse:
     """Run extract-requirements from the web UI."""
-    from urllib.parse import quote, urlencode
+    from urllib.parse import urlencode
 
     from taxwatch.requirements.extract import (
         MissingParentLaw,
@@ -228,9 +226,7 @@ def extract_requirements_web(
 
     session = get_session()
     try:
-        stats = extract_for_document(
-            session, document.strip(), allow_child=allow_child
-        )
+        stats = extract_for_document(session, document.strip(), allow_child=allow_child)
         msg = (
             f"已從《{stats['source_document']}》抽取 {stats['requirements']} 個課稅情境"
             f"（{stats['provisions_supplied']} 條條文）"
@@ -243,8 +239,9 @@ def extract_requirements_web(
             f"/requirements?{urlencode({'extract_error': str(exc)})}", status_code=303
         )
     except Exception as exc:
+        message = f"抽取失敗：{type(exc).__name__}: {exc}"
         return RedirectResponse(
-            f"/requirements?{urlencode({'extract_error': f'抽取失敗：{type(exc).__name__}: {exc}'})}",
+            f"/requirements?{urlencode({'extract_error': message})}",
             status_code=303,
         )
     finally:
@@ -291,9 +288,7 @@ def review_field(
 
                 clear_review_flag(session, field)
                 session.commit()
-        return RedirectResponse(
-            f"/requirements/{requirement_id}#{field_key}", status_code=303
-        )
+        return RedirectResponse(f"/requirements/{requirement_id}#{field_key}", status_code=303)
     finally:
         session.close()
 

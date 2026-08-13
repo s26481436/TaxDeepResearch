@@ -21,11 +21,29 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 4096
     llm_timeout: int = 120
 
-    # Brave Search — external corroboration during change analysis.
+    # 国家税务总局 policy-library search — the primary source of external
+    # corroboration for CN documents. Same backend the fgk site itself queries,
+    # so it costs no API quota and returns official documents (with their
+    # 时效性), which a third-party search engine cannot supply.
+    fgk_search_enabled: bool = True
+    fgk_search_max_results: int = 5
+    fgk_search_timeout: int = 20
+
+    # Brave Search — fallback corroboration when neither the local corpus nor
+    # the official library has anything. Metered, so it is rate-limited,
+    # cached, and capped per run.
     brave_search_api_key: str = ""
     brave_search_enabled: bool = True
     brave_search_max_results: int = 5
     brave_search_timeout: int = 10
+    # The free tier allows 2,000 queries a month at one per second. A cap per
+    # run is what keeps a single large crawl from spending the month's budget.
+    brave_search_max_queries_per_run: int = 30
+    brave_search_min_interval: float = 1.1
+    brave_search_cache_ttl_days: int = 30
+    # Empty means every non-cosmetic change may reach Brave. Set to "major" to
+    # spend quota only on the changes worth corroborating.
+    brave_search_min_severity: str = ""
 
     smtp_host: str = ""
     smtp_port: int = 587

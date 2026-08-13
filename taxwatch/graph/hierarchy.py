@@ -95,9 +95,7 @@ def is_child_of(child_key: str, parent_key: str) -> bool:
     return derive_parent_key(child_key) == parent_key.split("#", 1)[0]
 
 
-_TITLE_STATUTE_RE = re.compile(
-    r"《([一-鿿]{4,30}(?:法|條例|条例|暫行條例|暂行条例))》"
-)
+_TITLE_STATUTE_RE = re.compile(r"《([一-鿿]{4,30}(?:法|條例|条例|暫行條例|暂行条例))》")
 
 _CN_STATUTE_KEYWORDS: tuple[tuple[str, str], ...] = (
     ("增值税", "增值税法"),
@@ -159,8 +157,10 @@ def register_document_hierarchy(
 
     parent_key = derive_parent_key(doc_entity_key)
     if not parent_key:
+        doc_type = document.doc_type
         parent_key = derive_parent_from_title(
-            document.title, document.doc_type.value if hasattr(document.doc_type, "value") else str(document.doc_type)
+            document.title,
+            doc_type.value if hasattr(doc_type, "value") else str(doc_type),
         )
     if not parent_key:
         return None
@@ -284,6 +284,7 @@ def build_forest(
             )
             if title_parent:
                 from taxwatch.graph.resolver import normalize_entity_key
+
                 parent = nodes.get(normalize_entity_key(title_parent))
         if parent is not None and parent is not node:
             parent.children.append(node)

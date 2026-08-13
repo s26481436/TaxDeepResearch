@@ -197,23 +197,84 @@ def execute_pipeline(
     if stop_after not in ("fetch", "diff", "graph") and all_changes:
         # Stage: analyze
         analyzed = 0
+        from taxwatch.analysis import brave_search
         from taxwatch.analysis.analyze import analyze_change
+        from taxwatch.analysis.evidence import gather_for_document
         from taxwatch.models import Severity
 
+        brave_search.start_run()
+
+        # External corroboration describes the amendment, not the article: a
+        # statute revised in fifty places was revised once and announced once.
+        # Fetch it per document and share it, or every changed article buys
+        # another copy of the same answer.
+        by_document: dict[int, list[Change]] = {}
         for change in all_changes:
             if change.severity == Severity.COSMETIC:
                 continue
+            by_document.setdefault(change.document_id, []).append(change)
+
+        for document_id, changes in by_document.items():
+            doc = session.get(Document, document_id)
             try:
-                analyze_change(session, change)
-                analyzed += 1
+                document_evidence = gather_for_document(
+                    doc.title if doc else "",
+                    doc.external_id if doc else "",
+                    doc.issued_at if doc else None,
+                    session=session,
+                    # The official library is free, so it is always consulted;
+                    # this only decides whether a miss there may fall through
+                    # to the metered API for this document.
+                    allow_metered=_worth_metered_search(changes),
+                )
             except Exception:
-                logger.exception("Failed to analyze change %d", change.id)
+                logger.exception("Failed to gather evidence for document %d", document_id)
+                document_evidence = []
+
+            for change in changes:
+                try:
+                    analyze_change(session, change, document_evidence=document_evidence)
+                    analyzed += 1
+                except Exception:
+                    logger.exception("Failed to analyze change %d", change.id)
+
         session.commit()
-        stats["stages"]["analyze"] = {"analyzed": analyzed}
+        stats["stages"]["analyze"] = {
+            "analyzed": analyzed,
+            "documents": len(by_document),
+            "metered_queries": brave_search.get_budget().spent,
+        }
 
     stats["total_changes"] = len(all_changes)
     logger.info("[%s] Pipeline complete: %d changes detected", source_key, len(all_changes))
     return stats
+
+
+# Ordered least to most serious, so a configured floor admits everything at
+# or above it.
+_SEVERITY_ORDER = ("cosmetic", "minor", "major", "critical")
+
+
+def _worth_metered_search(changes: list[Change]) -> bool:
+    """May this document's changes fall through to the metered search API?
+
+    Off by default: an empty `brave_search_min_severity` admits everything, so
+    coverage is unchanged unless someone opts into rationing. Setting it to
+    `major` spends quota only where the corroboration is worth paying for.
+    """
+    floor = (get_settings().brave_search_min_severity or "").strip().lower()
+    if not floor:
+        return True
+    if floor not in _SEVERITY_ORDER:
+        logger.warning("Ignoring unknown brave_search_min_severity: %r", floor)
+        return True
+
+    threshold = _SEVERITY_ORDER.index(floor)
+    return any(
+        _SEVERITY_ORDER.index(c.severity.value) >= threshold
+        for c in changes
+        if c.severity.value in _SEVERITY_ORDER
+    )
 
 
 def _ensure_source(session: Session, key: str, cfg: dict) -> Source:
@@ -237,11 +298,7 @@ def _ensure_document(session: Session, source: Source, ref: Any) -> Document:
         session.query(Document).filter_by(source_id=source.id, external_id=ref.external_id).first()
     )
     if not doc:
-        doc = (
-            session.query(Document)
-            .filter_by(source_id=source.id, title=ref.title)
-            .first()
-        )
+        doc = session.query(Document).filter_by(source_id=source.id, title=ref.title).first()
         if doc:
             doc.external_id = ref.external_id
     if not doc:
@@ -271,9 +328,7 @@ def _ensure_document(session: Session, source: Source, ref: Any) -> Document:
     if ref.issued_at and ref.issued_at != doc.issued_at:
         doc.issued_at = ref.issued_at
     new_doc_type = (
-        DocType(ref.doc_type)
-        if ref.doc_type in DocType.__members__.values()
-        else DocType.STATUTE
+        DocType(ref.doc_type) if ref.doc_type in DocType.__members__.values() else DocType.STATUTE
     )
     if new_doc_type != doc.doc_type:
         doc.doc_type = new_doc_type

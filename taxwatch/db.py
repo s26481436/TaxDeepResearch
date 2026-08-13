@@ -159,5 +159,8 @@ def _widen_varchar_columns(engine) -> None:
                     conn.execute(text(ddl))
                 logger.info(
                     "Widened %s.%s from varchar(%d) to varchar(%d)",
-                    table.name, column.name, db_length, model_type.length,
+                    table.name,
+                    column.name,
+                    db_length,
+                    model_type.length,
                 )
