@@ -212,12 +212,19 @@ class TestConsolidatedView:
         stats = svc.get_consolidated(session, "中华人民共和国消费税法")["statistics"]
         assert stats["article_count"] == 2
         assert stats["supplemented_count"] == 2
-        assert stats["supplement_count"] == 2
+        # 2 citation-anchored + 1 child provision (公告#2) expanded as unanchored
+        assert stats["supplement_count"] == 3
 
     def test_lists_child_documents(self, session, consumption_tax):
         view = svc.get_consolidated(session, "中华人民共和国消费税法")
         titles = {c["key"] for c in view["child_documents"]}
         assert "消费税法实施条例" in titles
+
+    def test_child_provisions_without_citation_appear_as_unanchored(self, session, consumption_tax):
+        """公告#2 doesn't cite any parent article — it must still appear via child expansion."""
+        view = svc.get_consolidated(session, "中华人民共和国消费税法")
+        unanchored_keys = {s["node_key"] for s in view["unanchored_supplements"]}
+        assert "国家税务总局关于电池消费税征收管理有关事项的公告#2" in unanchored_keys
 
     def test_child_own_cross_references_are_not_supplements(self, session):
         """本条例第三条 inside the regulation is internal, not another instrument."""

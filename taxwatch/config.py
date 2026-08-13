@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     llm_api_key: str = "not-needed"
     llm_model: str = "default"
     llm_temperature: float = 0.1
-    llm_max_tokens: int = 4096
+    llm_max_tokens: int = 16384
     llm_timeout: int = 120
 
     # 国家税务总局 policy-library search — the primary source of external

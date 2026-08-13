@@ -96,7 +96,7 @@ def extract_for_document(
     resolved_tax_key = tax_key or _infer_tax_key(view["title"])
     tax_name = _tax_name(resolved_tax_key)
 
-    provisions_block, allowed_nodes = _render_provisions(view)
+    provisions_block, allowed_nodes, truncated_nodes = _render_provisions(view)
     if not allowed_nodes:
         raise NoSourceDocument(f"{external_id} has no parsed provisions to extract from")
 
@@ -122,6 +122,7 @@ def extract_for_document(
         "provisions_supplied": len(allowed_nodes),
         "requirements": len(result.requirements),
         "unresolved": result.unresolved,
+        "truncated_nodes": truncated_nodes,
         "dropped_citations": 0,
         "uncited_fields": 0,
     }
@@ -158,42 +159,47 @@ def extract_for_document(
 # ---------- internals ----------
 
 
-def _render_provisions(view: dict[str, Any]) -> tuple[str, set[str]]:
+def _render_provisions(view: dict[str, Any]) -> tuple[str, set[str], int]:
     """Lay out the consolidated view for the prompt, collecting valid node keys."""
     lines: list[str] = []
     allowed: set[str] = set()
     budget = _MAX_PROVISION_CHARS
 
+    truncated = 0
+
     def emit(text: str) -> bool:
-        nonlocal budget
+        nonlocal budget, truncated
         if budget - len(text) < 0:
+            truncated += 1
             return False
         lines.append(text)
         budget -= len(text)
         return True
 
     for article in view["articles"]:
-        allowed.add(article["node_key"])
         block = f"\n### [{article['node_key']}] {article['heading']}\n{article['text']}"
         if not emit(block):
             break
+        allowed.add(article["node_key"])
 
         for supplement in article["supplements"]:
-            allowed.add(supplement["node_key"])
-            emit(
+            ok = emit(
                 f"\n  補充規定 [{supplement['node_key']}] "
                 f"《{supplement['document_title']}》{supplement['heading']}\n"
                 f"  {supplement['text']}"
             )
+            if ok:
+                allowed.add(supplement["node_key"])
 
     for supplement in view.get("unanchored_supplements", []):
-        allowed.add(supplement["node_key"])
-        emit(
+        ok = emit(
             f"\n### [{supplement['node_key']}] "
             f"《{supplement['document_title']}》{supplement['heading']}\n{supplement['text']}"
         )
+        if ok:
+            allowed.add(supplement["node_key"])
 
-    return "\n".join(lines), allowed
+    return "\n".join(lines), allowed, truncated
 
 
 def _upsert_requirement(

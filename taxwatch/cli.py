@@ -336,6 +336,13 @@ def extract_requirements(
     for child in stats.get("child_documents", []):
         typer.echo(f"  ├ 子法：{child}")
     typer.echo(f"抽出 {stats['requirements']} 個課稅情境")
+    if stats["requirements"] == 0:
+        typer.echo("\n⚠ 0 個情境 — 成因分解：")
+        typer.echo(f"  母法條文：{stats['provisions_supplied']} 條送入 LLM")
+        typer.echo(f"  子法：{len(stats.get('child_documents', []))} 份")
+        if stats.get("truncated_nodes"):
+            typer.echo(f"  ⚠ 被預算截斷：{stats['truncated_nodes']} 條（超出 prompt 長度上限）")
+        typer.echo("  可能原因：LLM 回傳的 JSON 缺少 requirements 鍵、或 llm_max_tokens 不足")
     if stats["dropped_citations"]:
         # The model naming provisions that were never supplied is the failure
         # mode worth shouting about — it means the guidance is partly invented.

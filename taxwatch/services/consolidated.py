@@ -113,11 +113,39 @@ def get_consolidated(session: Session, external_id: str) -> dict[str, Any]:
         for p in articles
     ]
 
-    anchored_nodes = {s.node_key for article in consolidated for s in article.supplements}
-    unanchored = [s for s in supplements.get(doc_key, []) if s.node_key not in anchored_nodes]
+    anchored_nodes_pre = {s.node_key for article in consolidated for s in article.supplements}
+    unanchored = [s for s in supplements.get(doc_key, []) if s.node_key not in anchored_nodes_pre]
 
     family = get_family(session, doc_key)
     children = family["children"]
+
+    # Expand each child law's full text as unanchored supplements, so the LLM
+    # sees implementing detail even when the child never cites a specific
+    # parent article.
+    anchored_nodes = {s.node_key for article in consolidated for s in article.supplements}
+    child_supplements: list[Supplement] = []
+    for child_entity in children:
+        child_doc = _document_for_key(session, child_entity.entity_key)
+        if child_doc is None:
+            continue
+        child_snap = _latest_snapshot(session, child_doc.id)
+        if child_snap is None:
+            continue
+        for node in _provisions(session, child_snap.id):
+            if node.node_key in anchored_nodes:
+                continue
+            child_supplements.append(
+                Supplement(
+                    document_title=child_doc.title,
+                    document_external_id=child_doc.external_id,
+                    doc_type=child_doc.doc_type.value,
+                    node_key=node.node_key,
+                    heading=node.heading,
+                    text=node.text,
+                    relation="child_provision",
+                    issued_at=child_snap.dated_at.isoformat() if child_snap else None,
+                )
+            )
 
     return {
         "external_id": doc.external_id,
@@ -137,7 +165,7 @@ def get_consolidated(session: Session, external_id: str) -> dict[str, Any]:
         "statistics": {
             "article_count": len(consolidated),
             "supplemented_count": sum(1 for a in consolidated if a.supplements),
-            "supplement_count": sum(len(a.supplements) for a in consolidated) + len(unanchored),
+            "supplement_count": sum(len(a.supplements) for a in consolidated) + len(unanchored) + len(child_supplements),
         },
         "articles": [
             {
@@ -148,7 +176,7 @@ def get_consolidated(session: Session, external_id: str) -> dict[str, Any]:
             }
             for a in consolidated
         ],
-        "unanchored_supplements": [_as_dict(s) for s in unanchored],
+        "unanchored_supplements": [_as_dict(s) for s in unanchored] + [_as_dict(s) for s in child_supplements],
     }
 
 
