@@ -62,12 +62,17 @@ class CnTaxHtmlNormalizer(Normalizer):
         doc_key: str,
     ) -> list[ProvisionData]:
         content_div = soup.select_one(
-            ".article-content, .law-content, .content, .TRS_Editor, #content, main, article"
+            ".article-content, .law-content, .TRS_Editor, #content, main, article"
         )
+        if not content_div:
+            content_div = soup.select_one(".content")
         if not content_div:
             content_div = soup.body or soup
 
+        _strip_boilerplate(content_div)
+
         full_text = normalize_text(content_div.get_text("\n", strip=True))
+        full_text = _remove_boilerplate_text(full_text)
         if not full_text:
             return []
 
@@ -199,3 +204,73 @@ def _detect_encoding(raw: RawDocument) -> str:
     if m:
         return m.group(2).replace("gb2312", "gb18030")
     return "utf-8"
+
+
+# fgk.chinatax.gov.cn pages embed UI widgets (download buttons, share links,
+# subscription prompts, sidebar navigation) inside the same .content container
+# as the legal text. Strip them before extracting text.
+
+_BOILERPLATE_SELECTORS = [
+    # download / share / subscribe buttons
+    ".tools", ".toolbar", ".share", ".download", ".subscribe",
+    ".btn-group", ".action-bar", ".article-tools",
+    # sidebar and navigation
+    ".sidebar", ".aside", ".nav", ".breadcrumb", ".menu",
+    # font-size toggles
+    ".font-size", ".fontsize",
+    # related documents / interpretations
+    ".related", ".relation", ".associated",
+    # footer links
+    ".footer", ".copyright",
+    # QR codes / scan prompts
+    ".qrcode", ".scan",
+    # annotations / notes panels that are not part of the statute
+    ".annotation-panel",
+]
+
+_BOILERPLATE_TEXT_PATTERNS = re.compile(
+    r"|".join([
+        r"下载文字版",
+        r"下载图片版",
+        r"字体:\s*【[大中小]】",
+        r"【大】\s*【中】\s*【小】",
+        r"分享到:",
+        r"收藏\s*订阅",
+        r"已推送.*?我的订阅",
+        r"此稿件无标签.*?订阅更多",
+        r"语音播报:",
+        r"扫一扫在手机打开当前页",
+        r"【打印】\s*【下载】",
+        r"纠错或建议",
+        r"历史沿革",
+        r"关联解读",
+        r"关联文件",
+        r"关联问答",
+        r"关于《.*?》的解读",
+        r"个人中心-我的订阅",
+        r"进入\s*\"?订阅设置\"?",
+    ])
+)
+
+
+def _strip_boilerplate(soup: BeautifulSoup) -> None:
+    """Remove UI chrome elements from the content container."""
+    for selector in _BOILERPLATE_SELECTORS:
+        for el in soup.select(selector):
+            el.decompose()
+
+    for a_tag in soup.find_all("a"):
+        text = a_tag.get_text(strip=True)
+        if text in ("下载文字版", "下载图片版", "打印", "下载", "收藏", "订阅",
+                     "分享", "纠错或建议", "历史沿革", "关联解读", "关联文件", "关联问答"):
+            parent = a_tag.parent
+            a_tag.decompose()
+            if parent and parent.name and not parent.get_text(strip=True):
+                parent.decompose()
+
+
+def _remove_boilerplate_text(text: str) -> str:
+    """Remove residual boilerplate phrases that survive element stripping."""
+    text = _BOILERPLATE_TEXT_PATTERNS.sub("", text)
+    lines = [line for line in text.splitlines() if line.strip()]
+    return "\n".join(lines)
