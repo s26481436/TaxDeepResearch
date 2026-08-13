@@ -129,3 +129,35 @@ def _add_missing_columns(engine) -> None:
             with engine.begin() as conn:
                 conn.execute(text(ddl))
             logger.info("Added missing column %s.%s", table.name, column.name)
+
+    _widen_varchar_columns(engine)
+
+
+def _widen_varchar_columns(engine) -> None:
+    """Widen VARCHAR columns whose model length exceeds the DB column length."""
+    from sqlalchemy import String
+
+    inspector = inspect(engine)
+    for table in Base.metadata.sorted_tables:
+        if not inspector.has_table(table.name):
+            continue
+        db_cols = {col["name"]: col for col in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name not in db_cols:
+                continue
+            model_type = column.type
+            db_type = db_cols[column.name]["type"]
+            if not isinstance(model_type, String) or model_type.length is None:
+                continue
+            db_length = getattr(db_type, "length", None)
+            if db_length is not None and db_length < model_type.length:
+                ddl = (
+                    f'ALTER TABLE "{table.name}" '
+                    f'ALTER COLUMN "{column.name}" TYPE varchar({model_type.length})'
+                )
+                with engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info(
+                    "Widened %s.%s from varchar(%d) to varchar(%d)",
+                    table.name, column.name, db_length, model_type.length,
+                )
