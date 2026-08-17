@@ -362,6 +362,52 @@ class TestExtraction:
         req = session.query(TaxRequirement).filter_by(tax_key="cn_vat").one()
         assert req.country == "CN"
 
+    def test_extract_for_tax_deduplicates_by_root_document(self, session, vat_law):
+        """Documents in the same tree (e.g. child regulation and parent statute) are deduped to the root."""
+        from taxwatch.requirements.extract import extract_for_tax
+
+        # Add child regulation belonging to the same root tree
+        source = session.query(Source).filter_by(key="cn-chinatax").one()
+        child_doc = Document(
+            source_id=source.id,
+            external_id="cn-vat-reg",
+            title="中华人民共和国增值税法实施条例",
+            doc_type=DocType.REGULATION,
+            url="https://example.gov.cn/reg",
+        )
+        session.add(child_doc)
+        session.flush()
+
+        snap = Snapshot(
+            document_id=child_doc.id,
+            content_hash="hash-child",
+            issued_at=datetime(2025, 6, 30),
+            fetched_at=datetime(2026, 8, 12),
+        )
+        session.add(snap)
+        session.flush()
+
+        p1 = ProvisionNode(
+            snapshot_id=snap.id,
+            node_key="增值税法实施条例#1",
+            heading="第1条",
+            text="根据《增值税法》制定本条例。",
+            text_hash="hash-p1",
+        )
+        session.add(p1)
+        session.commit()
+
+        client = MagicMock(model="test-model")
+        client.generate_structured.return_value = _model_output([])
+
+        with patch("taxwatch.requirements.extract.get_llm_client", return_value=client):
+            stats = extract_for_tax(session, "cn_vat")
+
+        # Even though 2 documents exist, they share the same root (增值税法) -> processed 1, skipped 1
+        assert stats["documents_processed"] == 1
+        assert len(stats["skipped_duplicates"]) == 1
+        assert stats["skipped_duplicates"][0]["title"] == "中华人民共和国增值税法实施条例"
+
     def test_extract_batches_provisions_when_exceeding_budget(self, session, vat_law, monkeypatch):
         """When total provisions exceed budget, provisions are split into batches and merged."""
         import taxwatch.requirements.extract as ext_mod

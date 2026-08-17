@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from taxwatch.analysis.client import get_llm_client
 from taxwatch.models import (
+    DocType,
     Document,
     FieldSource,
     RequirementField,
@@ -124,20 +125,72 @@ def extract_for_tax(
     if not docs:
         raise NoSourceDocument(f"未找到屬於 {resolved_country} / {tax_key} 的法規文檔")
 
+    # Priority rank for doc_type: prefer STATUTE over REGULATION, etc.
+    type_priority = {
+        DocType.STATUTE: 1,
+        DocType.REGULATION: 2,
+        DocType.ANNOUNCEMENT: 3,
+        DocType.RULING: 4,
+        DocType.INTERPRETATION: 5,
+        DocType.NEWS: 6,
+    }
+
+    # Deduplicate documents based on their consolidated root document
+    # so we don't extract the same law family tree multiple times.
+    roots: dict[str, tuple[Document, str]] = {}  # root_external_id -> (chosen_doc, root_title)
+    skipped_duplicates: list[dict[str, str]] = []
+
+    for doc in docs:
+        try:
+            view = get_consolidated(session, doc.external_id)
+            root_ext_id = view.get("external_id") or doc.external_id
+            root_title = view.get("title") or doc.title
+        except Exception:
+            root_ext_id = doc.external_id
+            root_title = doc.title
+
+        if root_ext_id not in roots:
+            roots[root_ext_id] = (doc, root_title)
+        else:
+            existing_doc, existing_root_title = roots[root_ext_id]
+            # Choose document with higher priority (or stable sort on external_id)
+            p_existing = type_priority.get(existing_doc.doc_type, 99)
+            p_new = type_priority.get(doc.doc_type, 99)
+            if (p_new, doc.external_id) < (p_existing, existing_doc.external_id):
+                skipped_duplicates.append(
+                    {
+                        "title": existing_doc.title,
+                        "external_id": existing_doc.external_id,
+                        "root_title": existing_root_title,
+                    }
+                )
+                roots[root_ext_id] = (doc, root_title)
+            else:
+                skipped_duplicates.append(
+                    {
+                        "title": doc.title,
+                        "external_id": doc.external_id,
+                        "root_title": root_title,
+                    }
+                )
+
+    deduped_docs = [chosen_doc for chosen_doc, _ in roots.values()]
+
     # If multiple statutes/regulations exist, process root/statutes or each doc
     overall_stats: dict[str, Any] = {
         "tax_key": tax_key,
         "country": resolved_country,
         "tax_name": tax_type.name_zh,
-        "documents_processed": len(docs),
-        "source_documents": [d.title for d in docs],
+        "documents_processed": len(deduped_docs),
+        "source_documents": [d.title for d in deduped_docs],
+        "skipped_duplicates": skipped_duplicates,
         "requirements": 0,
         "dropped_citations": 0,
         "uncited_fields": 0,
         "results": [],
     }
 
-    for doc in docs:
+    for doc in deduped_docs:
         try:
             stat = extract_for_document(
                 session,
