@@ -109,7 +109,7 @@ class TestImport:
         assert stats["skipped"] == 0
 
         requirement = session.query(TaxRequirement).one()
-        assert requirement.tax_key == "vat"
+        assert requirement.tax_key == "cn_vat"
         assert requirement.scenario == "一般貨物及勞務銷售"
         assert requirement.taxpayer_role == "一般納稅人 - 一般計稅"
 

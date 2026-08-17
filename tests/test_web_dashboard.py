@@ -46,14 +46,14 @@ def test_tax_types_page(client):
 
 
 def test_tax_detail_page(client):
-    resp = client.get("/tax-types/enterprise_income?days=3650")
+    resp = client.get("/tax-types/cn_enterprise_income?days=3650")
     assert resp.status_code == 200
     assert "中华人民共和国企业所得税法" in resp.text
     assert "小型微利企业税率由15%调整为25%。" in resp.text
 
 
 def test_tax_detail_unknown_renders_not_found_page(client):
-    resp = client.get("/tax-types/vat")
+    resp = client.get("/tax-types/cn_vat")
     assert resp.status_code == 200
     assert "找不到" in resp.text
 
@@ -127,16 +127,16 @@ def test_health(client):
 def test_api_tax_types(client):
     body = client.get("/api/tax-types").json()
     assert body["count"] == 1
-    assert body["tax_types"][0]["key"] == "enterprise_income"
+    assert body["tax_types"][0]["key"] == "cn_enterprise_income"
 
 
 def test_api_tax_type_detail(client):
-    body = client.get("/api/tax-types/enterprise_income", params={"recent_days": 3650}).json()
+    body = client.get("/api/tax-types/cn_enterprise_income", params={"recent_days": 3650}).json()
     assert body["statistics"]["version_count"] == 3
 
 
 def test_api_tax_type_404(client):
-    assert client.get("/api/tax-types/vat").status_code == 404
+    assert client.get("/api/tax-types/cn_vat").status_code == 404
 
 
 def test_api_document_history(client):

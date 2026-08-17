@@ -182,16 +182,19 @@ def requirements_page(
     """The 申報規範 matrix — what a filer must do, per tax type and scenario."""
     session = get_session()
     try:
-        from taxwatch.models import DocType, Document, Source
+        from taxwatch.services.tax_types import list_tax_types
 
-        statutes = (
-            session.query(Document)
-            .join(Source, Document.source_id == Source.id)
-            .filter(Document.doc_type.in_([DocType.STATUTE, DocType.REGULATION]))
-            .order_by(Source.country, Document.title)
-            .all()
-        )
-        extractable = [{"external_id": d.external_id, "title": d.title} for d in statutes]
+        all_tax_types = list_tax_types(session)
+        extractable = [
+            {
+                "key": t["key"],
+                "name": t["name"],
+                "country": t["country"],
+                "label": f"[{t['country']}] {t['name']} ({t['key']})",
+            }
+            for t in all_tax_types
+            if t["document_count"] > 0
+        ]
         return _page(
             request,
             "requirements.html",
@@ -199,7 +202,7 @@ def requirements_page(
             requirements=requirements_svc.list_requirements(
                 session, country=country, tax_key=tax_key
             ),
-            review=requirements_svc.review_summary(session, tax_key=tax_key),
+            review=requirements_svc.review_summary(session, country=country, tax_key=tax_key),
             extractable=extractable,
             extract_result=extract_result,
             extract_error=extract_error,
@@ -212,29 +215,41 @@ def requirements_page(
 
 @app.post("/requirements/extract")
 def extract_requirements_web(
-    document: str = Form(...),
+    tax_key: str = Form(None),
+    document: str = Form(None),
     allow_child: bool = Form(False),
 ) -> RedirectResponse:
-    """Run extract-requirements from the web UI."""
+    """Run extract-requirements from the web UI by tax-type (or document for fallback)."""
     from urllib.parse import urlencode
 
     from taxwatch.requirements.extract import (
         MissingParentLaw,
         NoSourceDocument,
         extract_for_document,
+        extract_for_tax,
     )
 
     session = get_session()
     try:
-        stats = extract_for_document(session, document.strip(), allow_child=allow_child)
-        msg = (
-            f"已從《{stats['source_document']}》抽取 {stats['requirements']} 個課稅情境"
-            f"（{stats['provisions_supplied']} 條條文）"
-        )
+        if tax_key and tax_key.strip():
+            stats = extract_for_tax(session, tax_key.strip(), allow_child=allow_child)
+            msg = (
+                f"已針對【{stats['tax_name']}】抽取 {stats['requirements']} 個課稅情境"
+                f"（處理 {stats['documents_processed']} 部法規）"
+            )
+        elif document and document.strip():
+            stats = extract_for_document(session, document.strip(), allow_child=allow_child)
+            msg = (
+                f"已從《{stats['source_document']}》抽取 {stats['requirements']} 個課稅情境"
+                f"（{stats['provisions_supplied']} 條條文）"
+            )
+        else:
+            raise ValueError("請選擇稅種或法規")
+
         return RedirectResponse(
             f"/requirements?{urlencode({'extract_result': msg})}", status_code=303
         )
-    except (MissingParentLaw, NoSourceDocument, LookupError) as exc:
+    except (MissingParentLaw, NoSourceDocument, LookupError, ValueError) as exc:
         return RedirectResponse(
             f"/requirements?{urlencode({'extract_error': str(exc)})}", status_code=303
         )

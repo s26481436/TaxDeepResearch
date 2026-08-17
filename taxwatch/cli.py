@@ -232,9 +232,9 @@ def _echo_ingest_hint(country: str) -> None:
 
 @app.command()
 def extract_requirements(
-    document: str = typer.Argument(..., help="法規的 external_id 或標題"),
-    country: str = typer.Option("CN", help="轄區代碼"),
-    tax_key: str = typer.Option("", help="稅種鍵，留空則從標題推斷"),
+    tax_or_doc: str = typer.Argument(..., help="稅種代碼（如 cn_vat）或法規 external_id / 標題"),
+    country: str = typer.Option("", help="轄區代碼，留空則自動判定"),
+    tax_key: str = typer.Option("", help="稅種鍵，留空則自動推斷"),
     dry_run: bool = typer.Option(False, help="只顯示會抽出什麼，不寫入資料庫"),
     allow_child: bool = typer.Option(
         False,
@@ -242,9 +242,9 @@ def extract_requirements(
         help="母法未收錄時，仍允許只依子法（實施條例等）抽取",
     ),
 ):
-    """從法規條文（含子法與公告）抽取申報規範。
+    """從稅種或法規條文（含子法與公告）抽取申報規範。
 
-    DOCUMENT 可以是 external_id、完整標題，或標題的一段（例如「增值税法」）。
+    TAX_OR_DOC 可以是稅種代碼（例如 cn_vat）、external_id、完整標題，或標題的一段。
     """
     from openai import APIError
 
@@ -252,9 +252,11 @@ def extract_requirements(
     from taxwatch.db import get_session
     from taxwatch.db import init_db as _init_db
     from taxwatch.requirements.extract import (
+        CountryMismatch,
         MissingParentLaw,
         NoSourceDocument,
         extract_for_document,
+        extract_for_tax,
     )
     from taxwatch.services.documents import (
         AmbiguousDocument,
@@ -262,18 +264,43 @@ def extract_requirements(
         ParentLawMissing,
         suggest_documents,
     )
+    from taxwatch.taxonomy import by_key
 
     _init_db()
     session = get_session()
     try:
-        stats = extract_for_document(
-            session,
-            document,
-            country=country,
-            tax_key=tax_key or None,
-            dry_run=dry_run,
-            allow_child=allow_child,
-        )
+        # Check if tax_or_doc is a known tax_key
+        if by_key(tax_or_doc):
+            stats = extract_for_tax(
+                session,
+                tax_or_doc,
+                country=country or None,
+                dry_run=dry_run,
+                allow_child=allow_child,
+            )
+            typer.echo(
+                f"\n稅種 {stats['tax_key']} ({stats['tax_name']}) — 處理 {stats['documents_processed']} 部法規"
+            )
+            for doc_title in stats.get("source_documents", []):
+                typer.echo(f"  ├ 法規：{doc_title}")
+            typer.echo(f"抽出 {stats['requirements']} 個課稅情境")
+            if stats["dropped_citations"]:
+                typer.echo(f"⚠ 捨棄 {stats['dropped_citations']} 筆指向不存在條文的引用")
+            if stats["uncited_fields"]:
+                typer.echo(f"⚠ {stats['uncited_fields']} 個欄位無條文依據，已標記待覆核")
+            return
+        else:
+            stats = extract_for_document(
+                session,
+                tax_or_doc,
+                country=country or None,
+                tax_key=tax_key or None,
+                dry_run=dry_run,
+                allow_child=allow_child,
+            )
+    except CountryMismatch as exc:
+        typer.echo(f"轄區不一致：指定了 {exc.expected}，但該法規來源屬於 {exc.actual}。")
+        raise typer.Exit(1) from None
     except AmbiguousDocument as exc:
         typer.echo(f"「{exc.term}」對應到多份法規，請指定其中一份：")
         for title in exc.candidates:
@@ -302,8 +329,8 @@ def extract_requirements(
     except DocumentNotFound:
         # A bare "not found" is useless when the ids are machine-minted
         # (c5251620, 文號) and nobody can guess one.
-        typer.echo(f"找不到法規：{document}")
-        candidates = suggest_documents(session, document)
+        typer.echo(f"找不到法規或稅種：{tax_or_doc}")
+        candidates = suggest_documents(session, tax_or_doc)
         if candidates:
             typer.echo("\n已收錄的法規（可用 external_id 或標題片段）：")
             for c in candidates:
@@ -313,7 +340,7 @@ def extract_requirements(
             typer.echo("\n資料庫裡還沒有任何法規，請先執行：taxwatch run --source cn-chinatax")
         raise typer.Exit(1) from None
     except NoSourceDocument as exc:
-        typer.echo(f"這份法規沒有已解析的條文，無法抽取：{exc}")
+        typer.echo(f"沒有已解析的條文，無法抽取：{exc}")
         raise typer.Exit(1) from None
     except APIError as exc:
         # A stack trace from inside the OpenAI SDK tells the reader nothing
@@ -392,6 +419,7 @@ def import_requirements(
 
 @app.command()
 def review_queue(
+    country: str = typer.Option("", help="只看單一轄區"),
     tax_key: str = typer.Option("", help="只看單一稅種"),
 ):
     """列出待覆核的申報規範欄位。"""
@@ -402,7 +430,7 @@ def review_queue(
     _init_db()
     session = get_session()
     try:
-        summary = review_summary(session, tax_key=tax_key or None)
+        summary = review_summary(session, country=country or None, tax_key=tax_key or None)
     finally:
         session.close()
 

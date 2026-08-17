@@ -26,11 +26,14 @@ def list_requirements(
 
 
 @router.get("/review")
-def review_queue(tax_key: str | None = None) -> dict[str, Any]:
+def review_queue(
+    country: str | None = None,
+    tax_key: str | None = None,
+) -> dict[str, Any]:
     """Cells whose provisions moved, or that were never anchored to one."""
     session = get_session()
     try:
-        return svc.review_summary(session, tax_key=tax_key)
+        return svc.review_summary(session, country=country, tax_key=tax_key)
     finally:
         session.close()
 
@@ -59,5 +62,48 @@ def update_field(
         return svc.update_field(session, requirement_id, field_key, value, clear_flag=clear_flag)
     except svc.RequirementNotFound:
         raise HTTPException(404, f"Requirement not found: {requirement_id}") from None
+    finally:
+        session.close()
+
+
+@router.post("/extract")
+def extract_requirements_api(
+    tax_key: str | None = None,
+    document: str | None = None,
+    country: str | None = None,
+    dry_run: bool = False,
+    allow_child: bool = False,
+) -> dict[str, Any]:
+    """Extract reporting requirements for a tax_key or document."""
+    from taxwatch.requirements.extract import (
+        CountryMismatch,
+        MissingParentLaw,
+        NoSourceDocument,
+        extract_for_document,
+        extract_for_tax,
+    )
+
+    session = get_session()
+    try:
+        if tax_key:
+            return extract_for_tax(
+                session,
+                tax_key,
+                country=country,
+                dry_run=dry_run,
+                allow_child=allow_child,
+            )
+        elif document:
+            return extract_for_document(
+                session,
+                document,
+                country=country,
+                dry_run=dry_run,
+                allow_child=allow_child,
+            )
+        else:
+            raise HTTPException(400, "Must provide either tax_key or document")
+    except (CountryMismatch, MissingParentLaw, NoSourceDocument, LookupError, ValueError) as exc:
+        raise HTTPException(400, str(exc)) from None
     finally:
         session.close()

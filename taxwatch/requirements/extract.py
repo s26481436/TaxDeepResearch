@@ -37,7 +37,7 @@ from taxwatch.requirements.prompts import (
 )
 from taxwatch.requirements.schema import RequirementSetOut
 from taxwatch.services.consolidated import get_consolidated
-from taxwatch.taxonomy import TAX_TYPES, UNCLASSIFIED
+from taxwatch.taxonomy import UNCLASSIFIED, by_key, classify
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,15 @@ _MAX_PROVISION_CHARS = 60_000
 
 class NoSourceDocument(LookupError):
     """Raised when no monitored document can act as the basis for a tax type."""
+
+
+class CountryMismatch(ValueError):
+    """Raised when an explicit country argument conflicts with the document's source country."""
+
+    def __init__(self, expected: str, actual: str):
+        super().__init__(f"來源轄區為 {actual}，但指定了 {expected}")
+        self.expected = expected
+        self.actual = actual
 
 
 class MissingParentLaw(LookupError):
@@ -67,11 +76,73 @@ class MissingParentLaw(LookupError):
         self.status = status
 
 
+def extract_for_tax(
+    session: Session,
+    tax_key: str,
+    *,
+    country: str | None = None,
+    dry_run: bool = False,
+    allow_child: bool = False,
+) -> dict[str, Any]:
+    """Extract 申報規範 for all statutes/regulations belonging to a specific tax_key.
+
+    If country is not provided, it is resolved from the tax_type definition.
+    """
+    tax_type = by_key(tax_key)
+    if tax_type is None:
+        raise LookupError(f"未知稅種代碼: {tax_key}")
+
+    resolved_country = (country or tax_type.country).upper()
+    if country is not None and country.upper() != tax_type.country.upper():
+        raise CountryMismatch(expected=country.upper(), actual=tax_type.country.upper())
+
+    from taxwatch.services.documents import list_statutes_for_tax
+
+    docs = list_statutes_for_tax(session, resolved_country, tax_key)
+    if not docs:
+        raise NoSourceDocument(f"未找到屬於 {resolved_country} / {tax_key} 的法規文檔")
+
+    # If multiple statutes/regulations exist, process root/statutes or each doc
+    overall_stats: dict[str, Any] = {
+        "tax_key": tax_key,
+        "country": resolved_country,
+        "tax_name": tax_type.name_zh,
+        "documents_processed": len(docs),
+        "source_documents": [d.title for d in docs],
+        "requirements": 0,
+        "dropped_citations": 0,
+        "uncited_fields": 0,
+        "results": [],
+    }
+
+    for doc in docs:
+        try:
+            stat = extract_for_document(
+                session,
+                doc.external_id,
+                country=resolved_country,
+                tax_key=tax_key,
+                dry_run=dry_run,
+                allow_child=allow_child,
+            )
+            overall_stats["results"].append(stat)
+            overall_stats["requirements"] += stat.get("requirements", 0)
+            overall_stats["dropped_citations"] += stat.get("dropped_citations", 0)
+            overall_stats["uncited_fields"] += stat.get("uncited_fields", 0)
+        except MissingParentLaw:
+            if not allow_child:
+                raise
+        except NoSourceDocument:
+            continue
+
+    return overall_stats
+
+
 def extract_for_document(
     session: Session,
     external_id: str,
     *,
-    country: str = "CN",
+    country: str | None = None,
     tax_key: str | None = None,
     dry_run: bool = False,
     allow_child: bool = False,
@@ -92,8 +163,16 @@ def extract_for_document(
         )
 
     document = session.query(Document).filter_by(external_id=view["external_id"]).first()
+    derived_country = document.source.country if (document and document.source) else "CN"
 
-    resolved_tax_key = tax_key or _infer_tax_key(view["title"])
+    if country is not None and country.strip() != "":
+        if country.upper() != derived_country.upper():
+            raise CountryMismatch(expected=country.upper(), actual=derived_country.upper())
+        resolved_country = country.upper()
+    else:
+        resolved_country = derived_country.upper()
+
+    resolved_tax_key = tax_key or _infer_tax_key(view["title"], country=resolved_country)
     tax_name = _tax_name(resolved_tax_key)
 
     provisions_block, allowed_nodes, truncated_nodes = _render_provisions(view)
@@ -137,7 +216,7 @@ def extract_for_document(
         dropped, uncited = _upsert_requirement(
             session,
             row,
-            country=country,
+            country=resolved_country,
             tax_key=resolved_tax_key,
             document=document,
             allowed_nodes=allowed_nodes,
@@ -317,15 +396,10 @@ def _verify_citations(citations: list[Any], allowed_nodes: set[str]) -> tuple[li
     return kept, dropped
 
 
-def _infer_tax_key(title: str) -> str:
-    for tax_type in TAX_TYPES:
-        if any(keyword in title for keyword in tax_type.keywords):
-            return tax_type.key
-    return UNCLASSIFIED.key
+def _infer_tax_key(title: str, country: str = "CN") -> str:
+    return classify(title, country=country).key
 
 
 def _tax_name(tax_key: str) -> str:
-    for tax_type in TAX_TYPES:
-        if tax_type.key == tax_key:
-            return tax_type.name_zh
-    return UNCLASSIFIED.name_zh
+    tax_type = by_key(tax_key)
+    return tax_type.name_zh if tax_type else UNCLASSIFIED.name_zh

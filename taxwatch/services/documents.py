@@ -19,7 +19,7 @@ from taxwatch.corpus.store import make_classifier
 from taxwatch.diff.engine import diff_provisions
 from taxwatch.graph.hierarchy import derive_parent_key
 from taxwatch.graph.resolver import normalize_entity_key
-from taxwatch.models import Change, Document, ProvisionNode, Snapshot, Source
+from taxwatch.models import Change, DocType, Document, ProvisionNode, Snapshot, Source
 from taxwatch.normalize.base import ProvisionData
 
 
@@ -171,6 +171,29 @@ def suggest_documents(session: Session, term: str, *, limit: int = 10) -> list[d
     ]
 
 
+def list_statutes_for_tax(
+    session: Session,
+    country: str,
+    tax_key: str,
+) -> list[Document]:
+    """List all STATUTE / REGULATION documents belonging to (country, tax_key)."""
+    query = (
+        session.query(Document, Source)
+        .join(Source, Document.source_id == Source.id)
+        .filter(
+            Source.country == country.upper(),
+            Document.doc_type.in_([DocType.STATUTE, DocType.REGULATION]),
+        )
+    )
+    classify_doc = make_classifier(session)
+    docs: list[Document] = []
+    for doc, source in query.all():
+        tax_type = classify_doc(doc.title, doc.external_id, source.country)
+        if tax_type.key == tax_key:
+            docs.append(doc)
+    return docs
+
+
 def list_documents(
     session: Session,
     *,
@@ -190,7 +213,7 @@ def list_documents(
         if doc.title in seen_titles:
             continue
         seen_titles.add(doc.title)
-        tax_type = classify_doc(doc.title, doc.external_id)
+        tax_type = classify_doc(doc.title, doc.external_id, source.country)
         if tax_key and tax_type.key != tax_key:
             continue
         snapshots = _snapshots(session, doc.id)
@@ -250,7 +273,8 @@ def get_history(session: Session, external_id: str) -> dict[str, Any]:
         )
         timeline.append(entry)
 
-    tax_type = make_classifier(session)(doc.title, doc.external_id)
+    doc_country = doc.source.country if doc.source else "CN"
+    tax_type = make_classifier(session)(doc.title, doc.external_id, doc_country)
     return {
         "external_id": doc.external_id,
         "title": doc.title,

@@ -14,7 +14,7 @@ def test_history_lists_versions_oldest_first(session, seeded):
     assert [v["version"] for v in history["timeline"]] == ["v1", "v2", "v3"]
     assert history["first_seen"].startswith("2020-06-01")
     assert history["last_updated"].startswith("2026-08-01")
-    assert history["tax_key"] == "enterprise_income"
+    assert history["tax_key"] == "cn_enterprise_income"
 
 
 def test_history_attaches_changes_to_the_version_they_produced(session, seeded):
@@ -107,8 +107,8 @@ def test_list_documents_reports_version_count(session, seeded):
 def test_list_documents_filters(session, seeded):
     assert svc.list_documents(session, country="CN")
     assert svc.list_documents(session, country="TW") == []
-    assert svc.list_documents(session, tax_key="enterprise_income")
-    assert svc.list_documents(session, tax_key="vat") == []
+    assert svc.list_documents(session, tax_key="cn_enterprise_income")
+    assert svc.list_documents(session, tax_key="cn_vat") == []
 
 
 class TestFindDocumentByFragment:

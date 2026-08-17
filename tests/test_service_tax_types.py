@@ -11,7 +11,7 @@ def test_list_tax_types_groups_by_taxonomy(session, seeded):
     assert len(rows) == 1
 
     row = rows[0]
-    assert row["key"] == "enterprise_income"
+    assert row["key"] == "cn_enterprise_income"
     assert row["name"] == "企業所得稅"
     assert row["countries"] == ["CN"]
     assert row["document_count"] == 1
@@ -36,7 +36,7 @@ def test_list_tax_types_reports_freshness(session, seeded):
 
 
 def test_summary_includes_documents_and_analysed_changes(session, seeded):
-    summary = svc.get_summary(session, "enterprise_income", recent_days=3650)
+    summary = svc.get_summary(session, "cn_enterprise_income", recent_days=3650)
 
     assert summary["statistics"]["document_count"] == 1
     assert summary["statistics"]["version_count"] == 3
@@ -50,18 +50,18 @@ def test_summary_includes_documents_and_analysed_changes(session, seeded):
 
 
 def test_summary_documents_carry_current_provision_count(session, seeded):
-    summary = svc.get_summary(session, "enterprise_income", recent_days=3650)
+    summary = svc.get_summary(session, "cn_enterprise_income", recent_days=3650)
     assert summary["documents"][0]["provision_count"] == 3
 
 
 def test_summary_changes_are_newest_first(session, seeded):
-    changes = svc.get_summary(session, "enterprise_income", recent_days=3650)["changes"]
+    changes = svc.get_summary(session, "cn_enterprise_income", recent_days=3650)["changes"]
     assert changes[0]["detected_at"] > changes[1]["detected_at"]
 
 
 def test_summary_unknown_tax_type(session, seeded):
     with pytest.raises(svc.TaxTypeNotFound):
-        svc.get_summary(session, "vat")
+        svc.get_summary(session, "cn_vat")
 
 
 def test_dashboard_stats(session, seeded):
@@ -85,7 +85,7 @@ def test_list_changes_filters(session, seeded):
     assert len(dash_svc.list_changes(session, days=3650)) == 2
     assert len(dash_svc.list_changes(session, days=3650, severity="critical")) == 1
     assert dash_svc.list_changes(session, days=3650, country="TW") == []
-    assert dash_svc.list_changes(session, days=3650, tax_key="vat") == []
+    assert dash_svc.list_changes(session, days=3650, tax_key="cn_vat") == []
 
 
 def test_list_changes_respects_limit(session, seeded):
@@ -150,7 +150,7 @@ def test_summary_nests_implementing_regulation_under_its_statute(session, seeded
     )
     session.commit()
 
-    summary = svc.get_summary(session, "enterprise_income", recent_days=3650)
+    summary = svc.get_summary(session, "cn_enterprise_income", recent_days=3650)
 
     assert summary["statistics"]["document_count"] == 2
     assert summary["statistics"]["root_document_count"] == 1

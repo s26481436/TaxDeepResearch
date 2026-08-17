@@ -12,23 +12,23 @@ from taxwatch.models import CorpusDocument
 
 
 def test_parse_tax_keys_single():
-    assert parse_tax_keys("税收政策-增值税") == ["vat"]
+    assert parse_tax_keys("税收政策-增值税") == ["cn_vat"]
 
 
 def test_parse_tax_keys_multi_valued():
     """The corpus packs several tax types into one comma-separated field."""
     keys = parse_tax_keys("税收政策-增值税,税费征管")
-    assert keys == ["vat", "collection"]
+    assert keys == ["cn_vat", "cn_collection"]
 
 
 def test_parse_tax_keys_deduplicates():
-    # 增值税 and 营业税 both map to vat; the key must not repeat.
-    assert parse_tax_keys("税收政策-增值税,税收政策-营业税") == ["vat"]
+    # 增值税 and 营业税 both map to cn_vat; the key must not repeat.
+    assert parse_tax_keys("税收政策-增值税,税收政策-营业税") == ["cn_vat"]
 
 
 def test_parse_tax_keys_drops_unknown_labels():
     keys = parse_tax_keys("税收政策-增值税,税收政策-某种没听过的税")
-    assert keys == ["vat"]
+    assert keys == ["cn_vat"]
 
 
 def test_parse_tax_keys_empty():
@@ -37,8 +37,8 @@ def test_parse_tax_keys_empty():
 
 
 def test_parse_tax_keys_land_appreciation_is_property_not_vat():
-    """土地增值税 contains 增值税 as a substring — it must not become vat."""
-    assert parse_tax_keys("税收政策-土地增值税") == ["property"]
+    """土地增值税 contains 增值税 as a substring — it must not become cn_vat."""
+    assert parse_tax_keys("税收政策-土地增值税") == ["cn_property"]
 
 
 # ---------- row building ----------
@@ -74,18 +74,18 @@ def test_build_infers_tax_key_when_label_missing():
         "",
         "https://fgk.chinatax.gov.cn",
     )
-    assert doc.tax_keys == ["enterprise_income"]
+    assert doc.tax_keys == ["cn_enterprise_income"]
 
 
 def test_build_prefers_corpus_label_over_heuristic():
     doc = _build(
-        {"title": "关于优化企业所得税预缴纳税申报有关事项的公告", "tax_type": "税费征管"},
+        {"title": "关于优化企业所得税预缴纳税申报有关事項的公告", "tax_type": "税费征管"},
         "chinatax",
         "",
         "https://fgk.chinatax.gov.cn",
     )
-    # The heuristic would say enterprise_income; the corpus says 征管.
-    assert doc.tax_keys == ["collection"]
+    # The heuristic would say cn_enterprise_income; the corpus says 征管.
+    assert doc.tax_keys == ["cn_collection"]
 
 
 def test_build_makes_urls_absolute():
@@ -140,7 +140,7 @@ def corpus(session):
             channel="财税文件",
             effect_level="财税文件",
             tax_type_raw="税收政策-企业所得税",
-            tax_keys=["enterprise_income"],
+            tax_keys=["cn_enterprise_income"],
             aging="全文有效",
             written_date=datetime(2026, 1, 15),
             url="https://fgk.chinatax.gov.cn/a",
@@ -153,7 +153,7 @@ def corpus(session):
             title="关于旧政策的通知",
             channel="税务规范性文件",
             tax_type_raw="税收政策-增值税",
-            tax_keys=["vat"],
+            tax_keys=["cn_vat"],
             aging="全文废止",
             written_date=datetime(2003, 6, 1),
             url="https://fgk.chinatax.gov.cn/b",
@@ -216,26 +216,26 @@ def test_is_repealed_property(session, corpus):
 
 
 def test_classify_document_prefers_corpus_label(session, corpus):
-    """Title says 增值税, corpus label says vat — but for a document whose
+    """Title says 增值税, corpus label says cn_vat — but for a document whose
     title would mislead, the label wins."""
-    tax = store.classify_document(session, "关于旧政策的通知", "国税发〔2003〕67号")
-    assert tax.key == "vat"
+    tax = store.classify_document(session, "关于旧政策的通知", "国税发〔2003〕67号", country="CN")
+    assert tax.key == "cn_vat"
 
 
 def test_classify_document_falls_back_to_heuristic(session, corpus):
-    tax = store.classify_document(session, "中华人民共和国印花税法", "不在语料库〔2020〕1号")
-    assert tax.key == "stamp"
+    tax = store.classify_document(session, "中华人民共和国印花税法", "不在语料库〔2020〕1号", country="CN")
+    assert tax.key == "cn_stamp"
 
 
 def test_make_classifier_uses_index(session, corpus):
     classify = store.make_classifier(session)
-    assert classify("关于旧政策的通知", "国税发〔2003〕67号").key == "vat"
-    assert classify("中华人民共和国印花税法", "").key == "stamp"
+    assert classify("关于旧政策的通知", "国税发〔2003〕67号", "CN").key == "cn_vat"
+    assert classify("中华人民共和国印花税法", "", "CN").key == "cn_stamp"
 
 
 def test_make_classifier_survives_empty_corpus(session):
     classify = store.make_classifier(session)
-    assert classify("中华人民共和国企业所得税法", "").key == "enterprise_income"
+    assert classify("中华人民共和国企业所得税法", "", "CN").key == "cn_enterprise_income"
 
 
 def test_stats(session, corpus):
