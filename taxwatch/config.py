@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.1
     llm_max_tokens: int = 16384
     llm_timeout: int = 120
+    # The gateway in front of this deployment answers overload with 400 rather
+    # than 429, and a batched extraction fires eight to ten calls in a row —
+    # one transient refusal used to kill the whole run.
+    llm_retry_attempts: int = 5
+    llm_retry_base_delay: float = 2.0
+    llm_retry_on_bad_request: bool = True
 
     # 国家税务总局 policy-library search — the primary source of external
     # corroboration for CN documents. Same backend the fgk site itself queries,

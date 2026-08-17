@@ -9,10 +9,17 @@ from __future__ import annotations
 
 import json
 import logging
+import random
+import time
 from enum import StrEnum
-from typing import TypeVar
+from typing import Any, TypeVar
 
-from openai import OpenAI
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    OpenAI,
+)
 from pydantic import BaseModel, ValidationError
 
 from taxwatch.config import get_settings
@@ -39,6 +46,9 @@ class LLMClient:
         self.model = settings.llm_model
         self.temperature = settings.llm_temperature
         self.max_tokens = settings.llm_max_tokens
+        self.retry_attempts = settings.llm_retry_attempts
+        self.retry_base_delay = settings.llm_retry_base_delay
+        self.retry_on_bad_request = settings.llm_retry_on_bad_request
         self._schema_support: SchemaSupport | None = None
 
     def detect_capabilities(self) -> SchemaSupport:
@@ -90,13 +100,11 @@ class LLMClient:
         budget = self.max_tokens
 
         for attempt in range(max_retries + 1):
-            resp = self.client.chat.completions.create(
-                model=self.model,
+            resp = self._create_with_retry(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=self.temperature,
                 max_tokens=budget,
                 **kwargs,
             )
@@ -146,6 +154,58 @@ class LLMClient:
                 raise ValueError(msg) from exc
 
         raise RuntimeError("Unreachable")
+
+
+    # Status codes the gateway uses for "busy, try again". 400 is in the list
+    # because this deployment's gateway answers overload with BadRequest rather
+    # than 429 — see _is_retryable for why that is gated behind a setting.
+    _TRANSIENT_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+
+    def _is_retryable(self, exc: Exception) -> bool:
+        # A dropped connection or a timeout says nothing about the request
+        # itself, so it is always worth another go.
+        if isinstance(exc, (APIConnectionError, APITimeoutError)):
+            return True
+        if not isinstance(exc, APIStatusError):
+            return False
+        if exc.status_code in self._TRANSIENT_STATUS:
+            return True
+        # A 400 normally means the request is wrong and will stay wrong, so
+        # retrying it just burns time. Some gateways nonetheless return it under
+        # load, which is why this is opt-out rather than unconditional: a real
+        # malformed request still fails, only later and more loudly.
+        return exc.status_code == 400 and self.retry_on_bad_request
+
+    def _create_with_retry(self, **create_kwargs: Any):
+        last: Exception | None = None
+
+        for attempt in range(1, self.retry_attempts + 1):
+            try:
+                return self.client.chat.completions.create(
+                    model=self.model,
+                    temperature=self.temperature,
+                    **create_kwargs,
+                )
+            except Exception as exc:  # noqa: BLE001 — re-raised below if fatal
+                if not self._is_retryable(exc) or attempt >= self.retry_attempts:
+                    raise
+                last = exc
+                # Full jitter: a batch run fires many requests back to back, and
+                # a fixed backoff would march them all into the gateway together
+                # on every wave.
+                delay = random.uniform(0, self.retry_base_delay * (2 ** (attempt - 1)))
+                status = getattr(exc, "status_code", "-")
+                logger.warning(
+                    "LLM call failed (%s status=%s), attempt %d/%d; retrying in %.1fs",
+                    type(exc).__name__,
+                    status,
+                    attempt,
+                    self.retry_attempts,
+                    delay,
+                )
+                time.sleep(delay)
+
+        raise last if last else RuntimeError("Unreachable")
 
     def _build_format_kwargs(self, level: SchemaSupport, schema: dict) -> dict:
         if level == SchemaSupport.JSON_SCHEMA:
