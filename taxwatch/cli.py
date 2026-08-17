@@ -283,6 +283,8 @@ def extract_requirements(
             )
             for doc_title in stats.get("source_documents", []):
                 typer.echo(f"  ├ 法規：{doc_title}")
+            for skipped in stats.get("skipped_duplicates", []):
+                typer.echo(f"  ├ (略過重複法規樹)：{skipped['title']} (隸屬母法《{skipped['root_title']}》)")
             typer.echo(f"抽出 {stats['requirements']} 個課稅情境")
             if stats["dropped_citations"]:
                 typer.echo(f"⚠ 捨棄 {stats['dropped_citations']} 筆指向不存在條文的引用")
