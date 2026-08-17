@@ -262,14 +262,13 @@ def _supplements_by_article(session: Session, doc_key: str) -> dict[str, list[Su
 
         target_key = target_ids[relation.to_entity_id]
         rank = _IMPLEMENTING.index(relation.relation_type)
-        slot = (target_key, source.entity_key)
-        if slot in strongest and strongest[slot][0] <= rank:
-            continue
 
-        supplement = _build_supplement(session, source, relation)
-        if supplement is None:
-            continue
-        strongest[slot] = (rank, supplement)
+        supplements = _build_supplement(session, source, relation)
+        for supp in supplements:
+            slot = (target_key, supp.node_key)
+            if slot in strongest and strongest[slot][0] <= rank:
+                continue
+            strongest[slot] = (rank, supp)
 
     by_article: dict[str, list[Supplement]] = {}
     for (target_key, _), (_, supplement) in strongest.items():
@@ -284,35 +283,48 @@ def _build_supplement(
     session: Session,
     source: LegalEntity,
     relation: LegalRelation,
-) -> Supplement | None:
-    """Resolve a citing entity back to the provision text it stands for."""
+) -> list[Supplement]:
+    """Resolve a citing entity back to the provision text it stands for.
+
+    When source entity is doc-level (no '#' in entity_key), return all provisions
+    from that document's latest snapshot. When it is article-level (with '#'),
+    return only that specific provision node.
+    """
     source_doc_key = source.entity_key.split("#", 1)[0]
     document = _document_for_key(session, source_doc_key)
     if document is None:
-        return None
+        return []
 
     snapshot = _latest_snapshot(session, document.id)
     if snapshot is None:
-        return None
+        return []
 
-    node = (
-        session.query(ProvisionNode)
-        .filter_by(snapshot_id=snapshot.id, node_key=source.entity_key)
-        .first()
-    )
-    if node is None:
-        return None
+    if "#" in source.entity_key:
+        nodes = (
+            session.query(ProvisionNode)
+            .filter_by(snapshot_id=snapshot.id, node_key=source.entity_key)
+            .all()
+        )
+    else:
+        nodes = _provisions(session, snapshot.id)
 
-    return Supplement(
-        document_title=document.title,
-        document_external_id=document.external_id,
-        doc_type=document.doc_type.value,
-        node_key=node.node_key,
-        heading=node.heading,
-        text=node.text,
-        relation=relation.relation_type.value,
-        issued_at=snapshot.dated_at.isoformat() if snapshot else None,
-    )
+    if not nodes:
+        return []
+
+    issued_at_str = snapshot.dated_at.isoformat() if snapshot.dated_at else None
+    return [
+        Supplement(
+            document_title=document.title,
+            document_external_id=document.external_id,
+            doc_type=document.doc_type.value,
+            node_key=node.node_key,
+            heading=node.heading,
+            text=node.text,
+            relation=relation.relation_type.value,
+            issued_at=issued_at_str,
+        )
+        for node in nodes
+    ]
 
 
 def _document_for_key(session: Session, doc_key: str) -> Document | None:
@@ -335,11 +347,13 @@ def _document_for_key(session: Session, doc_key: str) -> Document | None:
 
 
 def _document_key(articles: list[ProvisionNode], doc: Document) -> str:
-    for node in articles:
-        stem = node.node_key.split("#", 1)[0].strip()
-        if stem:
-            return normalize_entity_key(stem)
-    return normalize_entity_key(doc.title or doc.external_id)
+    from taxwatch.graph.resolver import derive_document_entity_key
+
+    return derive_document_entity_key(
+        title=doc.title,
+        provisions=articles,
+        external_id=doc.external_id,
+    )
 
 
 def _latest_snapshot(session: Session, document_id: int) -> Snapshot | None:
