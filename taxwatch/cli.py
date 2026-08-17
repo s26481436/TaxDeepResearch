@@ -286,6 +286,12 @@ def extract_requirements(
             for skipped in stats.get("skipped_duplicates", []):
                 typer.echo(f"  ├ (略過重複法規樹)：{skipped['title']} (隸屬母法《{skipped['root_title']}》)")
             typer.echo(f"抽出 {stats['requirements']} 個課稅情境")
+            if stats.get("suspected_duplicates"):
+                typer.echo(f"\n⚠ 偵測到 {len(stats['suspected_duplicates'])} 組疑似重複/碎片化情境（身分與稅率相同）：")
+                for s in stats["suspected_duplicates"]:
+                    typer.echo(f"  · 身分: {s['taxpayer_role']} | 稅率: {s['normalized_rate']} ({s['count']} 列)")
+                    for sc in s["scenarios"]:
+                        typer.echo(f"      - {sc}")
             if stats["dropped_citations"]:
                 typer.echo(f"⚠ 捨棄 {stats['dropped_citations']} 筆指向不存在條文的引用")
             if stats["uncited_fields"]:
