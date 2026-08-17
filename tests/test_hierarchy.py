@@ -108,6 +108,20 @@ class TestNormalizeEntityKey:
         assert normalize_entity_key("《增值税法》") == "增值税法"
 
 
+class TestDeriveDocumentEntityKey:
+    def test_derives_from_provisions_stem_when_available(self):
+        from taxwatch.graph.resolver import derive_document_entity_key
+
+        provisions = [("企业所得税法实施条例#1", "text"), ("企业所得税法实施条例#2", "text")]
+        assert derive_document_entity_key(title="中华人民共和国企业所得税法实施条例", provisions=provisions) == "企业所得税法实施条例"
+
+    def test_falls_back_to_normalized_title(self):
+        from taxwatch.graph.resolver import derive_document_entity_key
+
+        assert derive_document_entity_key(title="中华人民共和国印花税法") == "印花税法"
+        assert derive_document_entity_key(external_id="cn-vat-law") == "cn-vat-law"
+
+
 # ---------------------------------------------------------------------------
 # Citations that carry the linkage
 # ---------------------------------------------------------------------------

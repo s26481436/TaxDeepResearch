@@ -362,6 +362,57 @@ class TestExtraction:
         req = session.query(TaxRequirement).filter_by(tax_key="cn_vat").one()
         assert req.country == "CN"
 
+    def test_extract_batches_provisions_when_exceeding_budget(self, session, vat_law, monkeypatch):
+        """When total provisions exceed budget, provisions are split into batches and merged."""
+        import taxwatch.requirements.extract as ext_mod
+
+        # Artificially set a small character limit to force multi-batch extraction
+        monkeypatch.setattr(ext_mod, "_MAX_PROVISION_CHARS", 30)
+
+        call_idx = 0
+
+        def mock_generate(*args, **kwargs):
+            nonlocal call_idx
+            call_idx += 1
+            if call_idx == 1:
+                return _model_output(
+                    [
+                        RequirementFieldOut(
+                            field_key="rate",
+                            value="13%",
+                            confidence=0.95,
+                            citations=[ProvisionCitation(node_key="增值税法#2")],
+                        )
+                    ]
+                )
+            else:
+                return _model_output(
+                    [
+                        RequirementFieldOut(
+                            field_key="filing_deadline",
+                            value="次月15日內",
+                            confidence=0.9,
+                            citations=[ProvisionCitation(node_key="增值税法#32")],
+                        )
+                    ]
+                )
+
+        client = MagicMock(model="test-model")
+        client.generate_structured.side_effect = mock_generate
+
+        with patch("taxwatch.requirements.extract.get_llm_client", return_value=client):
+            stats = ext_mod.extract_for_document(session, "cn-vat-law")
+
+        assert stats["batches"] >= 2
+        assert stats["provisions_supplied"] == 3
+        assert client.generate_structured.call_count == stats["batches"]
+
+        # Requirements should be merged into one scenario
+        req = session.query(TaxRequirement).filter_by(tax_key="cn_vat").one()
+        fields = {f.field_key: f for f in req.fields}
+        assert "rate" in fields and fields["rate"].value == "13%"
+        assert "filing_deadline" in fields and fields["filing_deadline"].value == "次月15日內"
+
 
 class TestOrphanedChildDocument:
     """A 实施条例 without its statute cannot support 申報規範.

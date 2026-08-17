@@ -212,8 +212,8 @@ class TestConsolidatedView:
         stats = svc.get_consolidated(session, "中华人民共和国消费税法")["statistics"]
         assert stats["article_count"] == 2
         assert stats["supplemented_count"] == 2
-        # 2 citation-anchored + 1 child provision (公告#2) expanded as unanchored
-        assert stats["supplement_count"] == 3
+        # 1条例 + 2公告 (公告#1 anchored, 公告#2 under promoted authority) + 1 unanchored
+        assert stats["supplement_count"] == 4
 
     def test_lists_child_documents(self, session, consumption_tax):
         view = svc.get_consolidated(session, "中华人民共和国消费税法")
@@ -334,3 +334,13 @@ class TestIssueDates:
         view = svc.get_consolidated(session, "中华人民共和国消费税法")
         assert view["as_of"].startswith("2024-12-25")
         assert view["official_date"] is True
+
+    def test_document_level_authority_expands_all_provisions(self, session, consumption_tax):
+        """When an announcement declares authority over a statute, all its articles expand."""
+        view = svc.get_consolidated(session, "中华人民共和国消费税法")
+        art4 = next(a for a in view["articles"] if a["heading"] == "第4条")
+        supp_nodes = [s["node_key"] for s in art4["supplements"]]
+        unanchored_nodes = [s["node_key"] for s in view["unanchored_supplements"]]
+        # Article 1 cites Article 4; Article 2 expands via promoted document authority / child supplements
+        assert "国家税务总局关于电池消费税征收管理有关事項的公告#1" in supp_nodes or "国家税务总局关于电池消费税征收管理有关事项的公告#1" in supp_nodes
+        assert "国家税务总局关于电池消费税征收管理有关事項的公告#2" in unanchored_nodes or "国家税务总局关于电池消费税征收管理有关事项的公告#2" in unanchored_nodes
