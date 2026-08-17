@@ -64,3 +64,46 @@ def update_field(
         raise HTTPException(404, f"Requirement not found: {requirement_id}") from None
     finally:
         session.close()
+
+
+@router.post("/extract")
+def extract_requirements_api(
+    tax_key: str | None = None,
+    document: str | None = None,
+    country: str | None = None,
+    dry_run: bool = False,
+    allow_child: bool = False,
+) -> dict[str, Any]:
+    """Extract reporting requirements for a tax_key or document."""
+    from taxwatch.requirements.extract import (
+        CountryMismatch,
+        MissingParentLaw,
+        NoSourceDocument,
+        extract_for_document,
+        extract_for_tax,
+    )
+
+    session = get_session()
+    try:
+        if tax_key:
+            return extract_for_tax(
+                session,
+                tax_key,
+                country=country,
+                dry_run=dry_run,
+                allow_child=allow_child,
+            )
+        elif document:
+            return extract_for_document(
+                session,
+                document,
+                country=country,
+                dry_run=dry_run,
+                allow_child=allow_child,
+            )
+        else:
+            raise HTTPException(400, "Must provide either tax_key or document")
+    except (CountryMismatch, MissingParentLaw, NoSourceDocument, LookupError, ValueError) as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        session.close()

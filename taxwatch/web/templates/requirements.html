@@ -21,11 +21,11 @@
     <form method="post" action="/requirements/extract" class="extract-form">
       <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
         <div style="flex:1;min-width:250px">
-          <label style="font-size:12.5px;color:var(--muted);display:block;margin-bottom:4px">選擇法規</label>
-          <select name="document" required style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg);font-size:13px">
-            <option value="">— 請選擇 —</option>
-            {% for d in extractable %}
-            <option value="{{ d.external_id }}">{{ d.title }}</option>
+          <label style="font-size:12.5px;color:var(--muted);display:block;margin-bottom:4px">選擇稅種</label>
+          <select name="tax_key" required style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg);font-size:13px">
+            <option value="">— 請選擇稅種 —</option>
+            {% for t in extractable %}
+            <option value="{{ t.key }}">{{ t.label }}</option>
             {% endfor %}
           </select>
         </div>
@@ -39,7 +39,7 @@
       </div>
     </form>
     <p style="font-size:12px;color:var(--muted);margin-top:8px">
-      從已收錄的法規條文以 LLM 抽取申報規範矩陣。需要先執行 <code>taxwatch run</code> 收錄法規。
+      從已收錄的稅種法規條文以 LLM 抽取申報規範矩陣。需要先執行 <code>taxwatch run</code> 收錄法規。
     </p>
   </div>
 </div>

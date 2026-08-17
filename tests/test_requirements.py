@@ -337,6 +337,31 @@ class TestExtraction:
         assert exc_info.value.expected == "TW"
         assert exc_info.value.actual == "CN"
 
+    def test_extract_for_tax_dispatches_to_matching_documents(self, session, vat_law):
+        from taxwatch.requirements.extract import extract_for_tax
+
+        client = MagicMock(model="test-model")
+        client.generate_structured.return_value = _model_output(
+            [
+                RequirementFieldOut(
+                    field_key="rate",
+                    value="13%",
+                    confidence=0.95,
+                    citations=[ProvisionCitation(node_key="增值税法#2")],
+                )
+            ]
+        )
+        with patch("taxwatch.requirements.extract.get_llm_client", return_value=client):
+            stats = extract_for_tax(session, "cn_vat")
+
+        assert stats["tax_key"] == "cn_vat"
+        assert stats["country"] == "CN"
+        assert stats["documents_processed"] == 1
+        assert stats["requirements"] == 1
+
+        req = session.query(TaxRequirement).filter_by(tax_key="cn_vat").one()
+        assert req.country == "CN"
+
 
 class TestOrphanedChildDocument:
     """A 实施条例 without its statute cannot support 申報規範.
@@ -753,3 +778,23 @@ class TestWebSurface:
         )
         assert resp.status_code == 200
         assert "flash-err" in resp.text or "找不到" in resp.text or "no-such-law" in resp.text
+
+    def test_extract_post_with_bad_tax_key_shows_error(self, client):
+        resp = client.post(
+            "/requirements/extract",
+            data={"tax_key": "nonexistent_tax"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert "flash-err" in resp.text or "未知稅種" in resp.text
+
+    def test_api_extract_endpoint_by_tax_key(self, client):
+        mock_llm = MagicMock(model="test-model")
+        mock_llm.generate_structured.return_value = _model_output([])
+        with patch("taxwatch.requirements.extract.get_llm_client", return_value=mock_llm):
+            resp = client.post(
+                "/api/requirements/extract",
+                params={"tax_key": "cn_vat", "dry_run": "true"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["tax_key"] == "cn_vat"

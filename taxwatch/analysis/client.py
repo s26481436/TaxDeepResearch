@@ -87,6 +87,8 @@ class LLMClient:
 
         kwargs = self._build_format_kwargs(level, schema)
 
+        budget = self.max_tokens
+
         for attempt in range(max_retries + 1):
             resp = self.client.chat.completions.create(
                 model=self.model,
@@ -95,11 +97,30 @@ class LLMClient:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=self.temperature,
-                max_tokens=self.max_tokens,
+                max_tokens=budget,
                 **kwargs,
             )
 
-            content = resp.choices[0].message.content or "{}"
+            choice = resp.choices[0]
+            content = choice.message.content or "{}"
+
+            # Truncated output parses as "malformed JSON", which sends the retry
+            # off fixing syntax it never got wrong. Give it more room instead.
+            if choice.finish_reason == "length":
+                if attempt < max_retries:
+                    logger.warning(
+                        "LLM output hit the %d-token limit; retrying with %d",
+                        budget,
+                        budget * 2,
+                    )
+                    budget *= 2
+                    continue
+                msg = (
+                    f"LLM output was truncated at the {budget}-token limit "
+                    f"(LLM_MAX_TOKENS). The response is incomplete JSON, not invalid "
+                    f"JSON — raise LLM_MAX_TOKENS or extract from fewer provisions."
+                )
+                raise ValueError(msg)
 
             try:
                 data = json.loads(content)

@@ -76,6 +76,68 @@ class MissingParentLaw(LookupError):
         self.status = status
 
 
+def extract_for_tax(
+    session: Session,
+    tax_key: str,
+    *,
+    country: str | None = None,
+    dry_run: bool = False,
+    allow_child: bool = False,
+) -> dict[str, Any]:
+    """Extract 申報規範 for all statutes/regulations belonging to a specific tax_key.
+
+    If country is not provided, it is resolved from the tax_type definition.
+    """
+    tax_type = by_key(tax_key)
+    if tax_type is None:
+        raise LookupError(f"未知稅種代碼: {tax_key}")
+
+    resolved_country = (country or tax_type.country).upper()
+    if country is not None and country.upper() != tax_type.country.upper():
+        raise CountryMismatch(expected=country.upper(), actual=tax_type.country.upper())
+
+    from taxwatch.services.documents import list_statutes_for_tax
+
+    docs = list_statutes_for_tax(session, resolved_country, tax_key)
+    if not docs:
+        raise NoSourceDocument(f"未找到屬於 {resolved_country} / {tax_key} 的法規文檔")
+
+    # If multiple statutes/regulations exist, process root/statutes or each doc
+    overall_stats: dict[str, Any] = {
+        "tax_key": tax_key,
+        "country": resolved_country,
+        "tax_name": tax_type.name_zh,
+        "documents_processed": len(docs),
+        "source_documents": [d.title for d in docs],
+        "requirements": 0,
+        "dropped_citations": 0,
+        "uncited_fields": 0,
+        "results": [],
+    }
+
+    for doc in docs:
+        try:
+            stat = extract_for_document(
+                session,
+                doc.external_id,
+                country=resolved_country,
+                tax_key=tax_key,
+                dry_run=dry_run,
+                allow_child=allow_child,
+            )
+            overall_stats["results"].append(stat)
+            overall_stats["requirements"] += stat.get("requirements", 0)
+            overall_stats["dropped_citations"] += stat.get("dropped_citations", 0)
+            overall_stats["uncited_fields"] += stat.get("uncited_fields", 0)
+        except MissingParentLaw:
+            if not allow_child:
+                raise
+        except NoSourceDocument:
+            continue
+
+    return overall_stats
+
+
 def extract_for_document(
     session: Session,
     external_id: str,
