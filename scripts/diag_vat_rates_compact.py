@@ -6,9 +6,69 @@
 
 from taxwatch.db import get_session
 from taxwatch.models import Document, ProvisionNode, Snapshot, TaxRequirement
-from taxwatch.requirements.extract import _MAX_PROVISION_CHARS, _render_provisions
 from taxwatch.services.consolidated import get_consolidated
 from taxwatch.services.documents import list_statutes_for_tax
+
+try:
+    from taxwatch.requirements.extract import _MAX_PROVISION_CHARS
+except ImportError:  # 名稱在某些版本可能不同
+    _MAX_PROVISION_CHARS = 60_000
+
+
+def render(view):
+    """複製 _render_provisions 的排版與預算邏輯。
+
+    不直接呼叫該函式：它的回傳簽章在不同版本間會變（2 或 3 個值），
+    而這支腳本要能在任何版本的樹上跑。
+    """
+    lines, allowed, budget = [], set(), _MAX_PROVISION_CHARS
+    full = 0
+
+    def size(text):
+        nonlocal full
+        full += len(text)
+        return text
+
+    for a in view["articles"]:
+        allowed.add(a["node_key"])
+        block = size(f"\n### [{a['node_key']}] {a['heading']}\n{a['text']}")
+        if budget - len(block) < 0:
+            # 上游在這裡 break，後續條文全部丟失；這裡繼續累加 full 以算出丟失量
+            for rest in view["articles"][view["articles"].index(a) + 1 :]:
+                size(f"\n### [{rest['node_key']}] {rest['heading']}\n{rest['text']}")
+                for x in rest["supplements"]:
+                    size(
+                        f"\n  補充規定 [{x['node_key']}] 《{x['document_title']}》"
+                        f"{x['heading']}\n  {x['text']}"
+                    )
+            for x in view.get("unanchored_supplements", []):
+                size(
+                    f"\n### [{x['node_key']}] 《{x['document_title']}》"
+                    f"{x['heading']}\n{x['text']}"
+                )
+            return "\n".join(lines), allowed, full
+        lines.append(block)
+        budget -= len(block)
+
+        for x in a["supplements"]:
+            allowed.add(x["node_key"])
+            t = size(
+                f"\n  補充規定 [{x['node_key']}] 《{x['document_title']}》"
+                f"{x['heading']}\n  {x['text']}"
+            )
+            if budget - len(t) >= 0:
+                lines.append(t)
+                budget -= len(t)
+
+    for x in view.get("unanchored_supplements", []):
+        allowed.add(x["node_key"])
+        t = size(f"\n### [{x['node_key']}] 《{x['document_title']}》{x['heading']}\n{x['text']}")
+        if budget - len(t) >= 0:
+            lines.append(t)
+            budget -= len(t)
+
+    return "\n".join(lines), allowed, full
+
 
 s = get_session()
 out = []
@@ -41,19 +101,8 @@ for i, d in enumerate(docs):
     supp = sum(len(a["supplements"]) for a in arts)
     unan = len(view.get("unanchored_supplements", []))
     kids = len(view.get("child_documents", []))
-    block, allowed = _render_provisions(view)
-
-    full = 0
-    for a in arts:
-        full += len(f"\n### [{a['node_key']}] {a['heading']}\n{a['text']}")
-        for x in a["supplements"]:
-            full += len(
-                f"\n  補充規定 [{x['node_key']}] 《{x['document_title']}》{x['heading']}\n  {x['text']}"
-            )
-    for x in view.get("unanchored_supplements", []):
-        full += len(f"\n### [{x['node_key']}] 《{x['document_title']}》{x['heading']}\n{x['text']}")
-
-    trunc = 1 if full > _MAX_PROVISION_CHARS else 0
+    block, allowed, full = render(view)
+    trunc = 1 if full > len(block) else 0
     out.append(
         f"L3.{i} art={len(arts)} supp={supp} unan={unan} kids={kids} "
         f"full={full} sent={len(block)} nodes={len(allowed)} TRUNC={trunc}"
