@@ -48,6 +48,29 @@ def normalize_entity_key(key: str) -> str:
     return _PRC_PREFIX_RE.sub("", key, count=1)
 
 
+def derive_document_entity_key(
+    title: str = "",
+    provisions: list[Any] | None = None,
+    external_id: str = "",
+) -> str:
+    """The canonical graph key standing for a document as a whole.
+
+    Prefers the stem of provision node_keys when available (so the document node
+    and its article nodes share an identical stem), falling back to normalized
+    title or external_id.
+    """
+    if provisions:
+        for prov in provisions:
+            node_key = getattr(prov, "node_key", None)
+            if isinstance(prov, tuple) and len(prov) > 0:
+                node_key = prov[0]
+            if node_key and isinstance(node_key, str):
+                stem = node_key.split("#", 1)[0].strip()
+                if stem:
+                    return normalize_entity_key(stem)
+    return normalize_entity_key(title or external_id)
+
+
 def _infer_type(key: str) -> DocType:
     # TW + CN statutes
     if re.search(r"法#|條例#|条例#|法$|條例$|条例$", key):

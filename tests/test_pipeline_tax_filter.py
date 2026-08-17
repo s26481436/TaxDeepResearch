@@ -82,7 +82,7 @@ def _mock_sources_with_tax_keys():
             "connector": "cn_chinatax",
             "config": {},
             "enabled": True,
-            "tax_keys": ["vat"],
+            "tax_keys": ["cn_vat"],
         },
     }
 
@@ -136,12 +136,12 @@ def test_tax_filter_keeps_only_matching(db, _patch_connector, monkeypatch):
     from taxwatch.jobs.pipeline import execute_pipeline
 
     stats = execute_pipeline(
-        db, "cn-chinatax", stop_after="fetch", tax_keys=["vat"]
+        db, "cn-chinatax", stop_after="fetch", tax_keys=["cn_vat"]
     )
     # 增值税法 should survive; others filtered out
     assert stats["stages"]["discover"]["documents_found"] == 1
     assert stats["stages"]["discover"]["filtered_out"] == 3
-    assert stats["stages"]["discover"]["tax_filter"] == ["vat"]
+    assert stats["stages"]["discover"]["tax_filter"] == ["cn_vat"]
 
 
 def test_tax_filter_multiple_keys(db, _patch_connector, monkeypatch):
@@ -149,7 +149,7 @@ def test_tax_filter_multiple_keys(db, _patch_connector, monkeypatch):
     from taxwatch.jobs.pipeline import execute_pipeline
 
     stats = execute_pipeline(
-        db, "cn-chinatax", stop_after="fetch", tax_keys=["vat", "stamp"]
+        db, "cn-chinatax", stop_after="fetch", tax_keys=["cn_vat", "cn_stamp"]
     )
     assert stats["stages"]["discover"]["documents_found"] == 2
     assert stats["stages"]["discover"]["filtered_out"] == 2
@@ -178,7 +178,7 @@ def test_keywords_injected_when_none_set(db, _patch_connector, monkeypatch):
 
     from taxwatch.jobs.pipeline import execute_pipeline
 
-    execute_pipeline(db, "cn-chinatax", stop_after="fetch", tax_keys=["vat"])
+    execute_pipeline(db, "cn-chinatax", stop_after="fetch", tax_keys=["cn_vat"])
     assert connectors
     # VAT keywords should have been injected
     assert connectors[0].injected_keywords
@@ -204,7 +204,7 @@ def test_keywords_not_overwritten_when_already_set(
     from taxwatch.jobs.pipeline import execute_pipeline
 
     execute_pipeline(
-        db, "cn-chinatax", stop_after="fetch", tax_keys=["stamp"]
+        db, "cn-chinatax", stop_after="fetch", tax_keys=["cn_stamp"]
     )
     assert connectors
     # Original keywords preserved, not replaced with stamp keywords
@@ -225,7 +225,7 @@ def test_yaml_tax_keys_used_when_cli_not_given(
     from taxwatch.jobs.pipeline import execute_pipeline
 
     stats = execute_pipeline(db, "cn-chinatax", stop_after="fetch")
-    assert stats["stages"]["discover"]["tax_filter"] == ["vat"]
+    assert stats["stages"]["discover"]["tax_filter"] == ["cn_vat"]
     assert stats["stages"]["discover"]["documents_found"] == 1
 
 
@@ -236,9 +236,9 @@ def test_cli_tax_overrides_yaml(db, _patch_connector, monkeypatch):
     from taxwatch.jobs.pipeline import execute_pipeline
 
     stats = execute_pipeline(
-        db, "cn-chinatax", stop_after="fetch", tax_keys=["stamp"]
+        db, "cn-chinatax", stop_after="fetch", tax_keys=["cn_stamp"]
     )
-    assert stats["stages"]["discover"]["tax_filter"] == ["stamp"]
+    assert stats["stages"]["discover"]["tax_filter"] == ["cn_stamp"]
     assert stats["stages"]["discover"]["documents_found"] == 1
 
 
@@ -256,7 +256,7 @@ def test_tax_keys_not_swallowed_by_kwargs(db, _patch_connector, monkeypatch):
     stats_all = execute_pipeline(db, "cn-chinatax", stop_after="fetch")
     # With filter
     stats_vat = execute_pipeline(
-        db, "cn-chinatax", stop_after="fetch", tax_keys=["vat"]
+        db, "cn-chinatax", stop_after="fetch", tax_keys=["cn_vat"]
     )
 
     assert stats_all["stages"]["discover"]["documents_found"] > \

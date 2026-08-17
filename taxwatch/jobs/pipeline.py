@@ -125,7 +125,7 @@ def execute_pipeline(
         before = len(refs)
         refs = [
             r for r in refs
-            if classify_doc(r.title, r.external_id).key in wanted
+            if classify_doc(r.title, r.external_id, source.country).key in wanted
         ]
         filtered_out = before - len(refs)
         logger.info(
@@ -399,19 +399,14 @@ def _issued_at(ref: Any, normalized: Any) -> Any:
 
 
 def _document_entity_key(normalized: Any, doc: Document) -> str:
-    """The graph key standing for the document as a whole.
+    """The graph key standing for the document as a whole."""
+    from taxwatch.graph.resolver import derive_document_entity_key
 
-    Taken from the provisions' own keys rather than the title, so the document
-    node and its article nodes share a stem — otherwise 增值税法实施条例 and
-    增值税法实施条例#3 would be unrelated entities.
-    """
-    from taxwatch.graph.resolver import normalize_entity_key
-
-    for prov in normalized.provisions:
-        stem = prov.node_key.split("#", 1)[0].strip()
-        if stem:
-            return normalize_entity_key(stem)
-    return normalize_entity_key(normalized.title or doc.title or doc.external_id)
+    return derive_document_entity_key(
+        title=normalized.title or doc.title,
+        provisions=normalized.provisions,
+        external_id=doc.external_id,
+    )
 
 
 def _save_raw(raw: Any, source_key: str):
