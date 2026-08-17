@@ -32,26 +32,26 @@ REQUIRED_COLUMN = "title"
 
 # 「税收政策-增值税,税费征管」 → the corpus's own tax vocabulary.
 _TAX_LABEL_MAP: dict[str, str] = {
-    "增值税": "vat",
-    "营业税": "vat",
-    "企业所得税": "enterprise_income",
-    "个人所得税": "individual_income",
-    "印花税": "stamp",
-    "环境保护税": "environmental",
-    "资源税": "resource",
-    "城市维护建设税": "urban_maintenance",
-    "消费税": "consumption",
-    "契税": "property",
-    "房产税": "property",
-    "土地增值税": "property",
-    "城镇土地使用税": "property",
-    "耕地占用税": "property",
-    "车辆购置税": "vehicle",
-    "车船税": "vehicle",
-    "烟叶税": "tobacco_alcohol",
-    "关税": "customs",
-    "进出口税收": "customs",
-    "税费征管": "collection",
+    "增值税": "cn_vat",
+    "营业税": "cn_vat",
+    "企业所得税": "cn_enterprise_income",
+    "个人所得税": "cn_individual_income",
+    "印花税": "cn_stamp",
+    "环境保护税": "cn_environmental",
+    "资源税": "cn_resource",
+    "城市维护建设税": "cn_urban_maintenance",
+    "消费税": "cn_consumption",
+    "契税": "cn_property",
+    "房产税": "cn_property",
+    "土地增值税": "cn_property",
+    "城镇土地使用税": "cn_property",
+    "耕地占用税": "cn_property",
+    "车辆购置税": "cn_vehicle",
+    "车船税": "cn_vehicle",
+    "烟叶税": "cn_tobacco",
+    "关税": "cn_customs",
+    "进出口税收": "cn_customs",
+    "税费征管": "cn_collection",
 }
 
 
@@ -148,8 +148,8 @@ def _build(
 
     tax_keys = parse_tax_keys(_text(row.get("tax_type")))
     if not tax_keys:
-        inferred = classify(title)
-        if inferred.key != "other":
+        inferred = classify(title, country="CN")
+        if inferred.key not in ("cn_other", "other"):
             tax_keys = [inferred.key]
 
     return CorpusDocument(

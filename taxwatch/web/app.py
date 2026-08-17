@@ -199,7 +199,7 @@ def requirements_page(
             requirements=requirements_svc.list_requirements(
                 session, country=country, tax_key=tax_key
             ),
-            review=requirements_svc.review_summary(session, tax_key=tax_key),
+            review=requirements_svc.review_summary(session, country=country, tax_key=tax_key),
             extractable=extractable,
             extract_result=extract_result,
             extract_error=extract_error,

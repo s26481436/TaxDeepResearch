@@ -356,6 +356,7 @@ def import_requirements(
 
 @app.command()
 def review_queue(
+    country: str = typer.Option("", help="只看單一轄區"),
     tax_key: str = typer.Option("", help="只看單一稅種"),
 ):
     """列出待覆核的申報規範欄位。"""
@@ -366,7 +367,7 @@ def review_queue(
     _init_db()
     session = get_session()
     try:
-        summary = review_summary(session, tax_key=tax_key or None)
+        summary = review_summary(session, country=country or None, tax_key=tax_key or None)
     finally:
         session.close()
 

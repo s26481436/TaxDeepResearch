@@ -15,7 +15,7 @@ from taxwatch.models import (
     TaxRequirement,
 )
 from taxwatch.requirements.fields import FIELD_SPECS, label
-from taxwatch.taxonomy import TAX_TYPES, UNCLASSIFIED
+from taxwatch.taxonomy import UNCLASSIFIED, by_key
 
 
 class RequirementNotFound(LookupError):
@@ -70,19 +70,27 @@ def get_requirement(session: Session, requirement_id: int) -> dict[str, Any]:
     }
 
 
-def review_summary(session: Session, *, tax_key: str | None = None) -> dict[str, Any]:
+def review_summary(
+    session: Session,
+    *,
+    country: str | None = None,
+    tax_key: str | None = None,
+) -> dict[str, Any]:
     """What a reviewer needs to work through, newest problem first."""
     query = (
         session.query(RequirementField, TaxRequirement)
         .join(TaxRequirement, RequirementField.requirement_id == TaxRequirement.id)
         .filter(RequirementField.needs_review.is_(True))
     )
+    if country:
+        query = query.filter(TaxRequirement.country == country.upper())
     if tax_key:
         query = query.filter(TaxRequirement.tax_key == tax_key)
 
     items = [
         {
             "requirement_id": requirement.id,
+            "country": requirement.country,
             "tax_key": requirement.tax_key,
             "tax_name": _tax_name(requirement.tax_key),
             "scenario": requirement.scenario,
@@ -202,7 +210,5 @@ def _field_row(
 
 
 def _tax_name(tax_key: str) -> str:
-    for tax_type in TAX_TYPES:
-        if tax_type.key == tax_key:
-            return tax_type.name_zh
-    return UNCLASSIFIED.name_zh
+    tax_type = by_key(tax_key)
+    return tax_type.name_zh if tax_type else UNCLASSIFIED.name_zh

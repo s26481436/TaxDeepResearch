@@ -26,7 +26,7 @@ from taxwatch.models import (
     TaxRequirement,
 )
 from taxwatch.requirements.fields import FIELD_KEYS
-from taxwatch.taxonomy import TAX_TYPES, UNCLASSIFIED
+from taxwatch.taxonomy import UNCLASSIFIED, classify
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +152,7 @@ def _row_to_record(row: list[str], mapping: dict[int, str]) -> dict[str, str]:
 
 
 def _upsert(session: Session, record: dict[str, str], *, country: str) -> TaxRequirement:
-    tax_key = _tax_key(record.get("_tax", ""))
+    tax_key = _tax_key(record.get("_tax", ""), country=country)
     scenario = record["_scenario"]
     role = record.get("_role", "")
 
@@ -196,8 +196,5 @@ def _upsert(session: Session, record: dict[str, str], *, country: str) -> TaxReq
     return requirement
 
 
-def _tax_key(label: str) -> str:
-    for tax_type in TAX_TYPES:
-        if any(keyword in label for keyword in tax_type.keywords):
-            return tax_type.key
-    return UNCLASSIFIED.key
+def _tax_key(label: str, country: str = "CN") -> str:
+    return classify(label, country=country).key

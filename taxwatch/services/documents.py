@@ -190,7 +190,7 @@ def list_documents(
         if doc.title in seen_titles:
             continue
         seen_titles.add(doc.title)
-        tax_type = classify_doc(doc.title, doc.external_id)
+        tax_type = classify_doc(doc.title, doc.external_id, source.country)
         if tax_key and tax_type.key != tax_key:
             continue
         snapshots = _snapshots(session, doc.id)
@@ -250,7 +250,8 @@ def get_history(session: Session, external_id: str) -> dict[str, Any]:
         )
         timeline.append(entry)
 
-    tax_type = make_classifier(session)(doc.title, doc.external_id)
+    doc_country = doc.source.country if doc.source else "CN"
+    tax_type = make_classifier(session)(doc.title, doc.external_id, doc_country)
     return {
         "external_id": doc.external_id,
         "title": doc.title,

@@ -26,11 +26,14 @@ def list_requirements(
 
 
 @router.get("/review")
-def review_queue(tax_key: str | None = None) -> dict[str, Any]:
+def review_queue(
+    country: str | None = None,
+    tax_key: str | None = None,
+) -> dict[str, Any]:
     """Cells whose provisions moved, or that were never anchored to one."""
     session = get_session()
     try:
-        return svc.review_summary(session, tax_key=tax_key)
+        return svc.review_summary(session, country=country, tax_key=tax_key)
     finally:
         session.close()
 

@@ -140,7 +140,7 @@ class TestExtraction:
         )
 
         assert stats["requirements"] == 1
-        assert stats["tax_key"] == "vat"
+        assert stats["tax_key"] == "cn_vat"
 
         field = session.query(RequirementField).filter_by(field_key="rate").one()
         assert field.value == "13%"
@@ -624,7 +624,7 @@ class TestService:
         assert summary["count"] == 1
         item = summary["items"][0]
         assert item["field_label"] == "申報期限"
-        assert item["tax_name"] == "增值稅／營業稅"
+        assert item["tax_name"] == "增值稅"
         assert "增值税法#32" in item["reason"]
 
     def test_update_field_creates_a_cell_that_did_not_exist(self, session, vat_law):

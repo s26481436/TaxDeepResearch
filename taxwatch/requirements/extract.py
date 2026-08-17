@@ -37,7 +37,7 @@ from taxwatch.requirements.prompts import (
 )
 from taxwatch.requirements.schema import RequirementSetOut
 from taxwatch.services.consolidated import get_consolidated
-from taxwatch.taxonomy import TAX_TYPES, UNCLASSIFIED
+from taxwatch.taxonomy import UNCLASSIFIED, by_key, classify
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +110,7 @@ def extract_for_document(
     else:
         resolved_country = derived_country.upper()
 
-    resolved_tax_key = tax_key or _infer_tax_key(view["title"])
+    resolved_tax_key = tax_key or _infer_tax_key(view["title"], country=resolved_country)
     tax_name = _tax_name(resolved_tax_key)
 
     provisions_block, allowed_nodes = _render_provisions(view)
@@ -328,15 +328,10 @@ def _verify_citations(citations: list[Any], allowed_nodes: set[str]) -> tuple[li
     return kept, dropped
 
 
-def _infer_tax_key(title: str) -> str:
-    for tax_type in TAX_TYPES:
-        if any(keyword in title for keyword in tax_type.keywords):
-            return tax_type.key
-    return UNCLASSIFIED.key
+def _infer_tax_key(title: str, country: str = "CN") -> str:
+    return classify(title, country=country).key
 
 
 def _tax_name(tax_key: str) -> str:
-    for tax_type in TAX_TYPES:
-        if tax_type.key == tax_key:
-            return tax_type.name_zh
-    return UNCLASSIFIED.name_zh
+    tax_type = by_key(tax_key)
+    return tax_type.name_zh if tax_type else UNCLASSIFIED.name_zh

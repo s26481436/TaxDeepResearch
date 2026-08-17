@@ -30,13 +30,13 @@ def list_tax_types(session: Session, *, recent_days: int = 7) -> list[dict[str, 
     buckets: dict[str, dict[str, Any]] = {}
 
     for doc, source in _documents_with_sources(session):
-        tax_type = classify_doc(doc.title, doc.external_id)
+        tax_type = classify_doc(doc.title, doc.external_id, source.country)
         bucket = buckets.setdefault(
             tax_type.key,
             {
                 "key": tax_type.key,
                 "name": tax_type.name_zh,
-                "countries": set(),
+                "country": tax_type.country or source.country,
                 "document_count": 0,
                 "version_count": 0,
                 "recent_changes": 0,
@@ -45,7 +45,6 @@ def list_tax_types(session: Session, *, recent_days: int = 7) -> list[dict[str, 
             },
         )
 
-        bucket["countries"].add(source.country)
         bucket["document_count"] += 1
 
         snapshots = (
@@ -73,7 +72,7 @@ def list_tax_types(session: Session, *, recent_days: int = 7) -> list[dict[str, 
         rows.append(
             {
                 **bucket,
-                "countries": sorted(bucket["countries"]),
+                "countries": [bucket["country"]] if bucket.get("country") else [],
                 "last_updated": last.isoformat() if last else None,
                 "days_since_update": (now - last).days if last else None,
                 "status": _status(bucket["recent_changes"], bucket["critical_changes"]),
@@ -96,17 +95,17 @@ def get_summary(
 
     documents: list[dict[str, Any]] = []
     changes: list[dict[str, Any]] = []
-    countries: set[str] = set()
+    resolved_country = ""
     tax_name = ""
     confidence_values: list[float] = []
     latest_overall: datetime | None = None
 
     for doc, source in _documents_with_sources(session):
-        tax_type = classify_doc(doc.title, doc.external_id)
+        tax_type = classify_doc(doc.title, doc.external_id, source.country)
         if tax_type.key != tax_key:
             continue
         tax_name = tax_type.name_zh
-        countries.add(source.country)
+        resolved_country = tax_type.country or source.country
 
         snapshots = (
             session.query(Snapshot).filter_by(document_id=doc.id).order_by(_DATED_AT.desc()).all()
@@ -175,7 +174,8 @@ def get_summary(
     return {
         "key": tax_key,
         "name": tax_name or UNCLASSIFIED.name_zh,
-        "countries": sorted(countries),
+        "country": resolved_country,
+        "countries": [resolved_country] if resolved_country else [],
         "last_updated": latest_overall.isoformat() if latest_overall else None,
         "statistics": {
             "document_count": len(documents),

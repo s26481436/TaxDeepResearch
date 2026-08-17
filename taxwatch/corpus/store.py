@@ -87,6 +87,7 @@ def classify_document(
     title: str,
     document_number: str = "",
     *,
+    country: str = "CN",
     corpus_key: str | None = None,
 ) -> TaxType:
     """Tax type for a document — the corpus's official label where we have it.
@@ -101,7 +102,7 @@ def classify_document(
             resolved = by_key(doc.tax_keys[0])
             if resolved:
                 return resolved
-    return classify(title)
+    return classify(title, country=country)
 
 
 def tax_key_index(session: Session, *, corpus_key: str | None = None) -> dict[str, str]:
@@ -122,7 +123,7 @@ def make_classifier(
     session: Session,
     *,
     corpus_key: str | None = None,
-) -> Callable[[str, str], TaxType]:
+) -> Callable[[str, str, str], TaxType]:
     """Build a corpus-backed classifier with a single query.
 
     Callers that classify a whole list of documents (any dashboard page) use
@@ -133,13 +134,13 @@ def make_classifier(
     except Exception:  # noqa: BLE001 — corpus table may not exist yet
         index = {}
 
-    def _classify(title: str, document_number: str = "") -> TaxType:
+    def _classify(title: str, document_number: str = "", country: str = "CN") -> TaxType:
         key = index.get(normalize(document_number)) if document_number else None
         if key:
             resolved = by_key(key)
             if resolved:
                 return resolved
-        return classify(title)
+        return classify(title, country=country)
 
     return _classify
 
