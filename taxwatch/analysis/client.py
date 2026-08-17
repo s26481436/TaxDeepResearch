@@ -42,6 +42,11 @@ class LLMClient:
             base_url=settings.llm_base_url,
             api_key=settings.llm_api_key,
             timeout=settings.llm_timeout,
+            # The SDK retries twice on its own by default. Stacked under our
+            # own retry loop that is up to 15 HTTP calls per logical request,
+            # with two independent backoffs — which reads as a hang. Retry
+            # policy lives in _create_with_retry alone.
+            max_retries=0,
         )
         self.model = settings.llm_model
         self.temperature = settings.llm_temperature

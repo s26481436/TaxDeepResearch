@@ -118,3 +118,17 @@ def test_connection_and_timeout_errors_are_retried(client):
         client.client = type("C", (), {"chat": type("Ch", (), {"completions": type("Co", (), {"create": staticmethod(create)})()})()})()
         assert client._create_with_retry(messages=[]) == "ok"
         assert calls["n"] == 2
+
+
+def test_sdk_level_retries_are_disabled(monkeypatch):
+    """Our retry loop must be the only one, or backoffs stack invisibly."""
+    captured = {}
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("taxwatch.analysis.client.OpenAI", FakeOpenAI)
+    LLMClient()
+
+    assert captured["max_retries"] == 0
