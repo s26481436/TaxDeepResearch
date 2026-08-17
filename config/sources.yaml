@@ -58,6 +58,9 @@ sources:
       columns: "政策法规,政策解读,政策指引"
       labels: "法律,行政法规,国务院文件,税务部门规章,税务规范性文件,财税文件"
       max_pages: 10
+    # tax_keys:              # 長期只跑特定稅種（CLI --tax 優先）
+    #   - vat                # 見 `taxwatch tax-types` 列出所有合法 key
+    #   - enterprise_income
 
   cn-mof:
     country: CN

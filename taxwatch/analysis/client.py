@@ -81,7 +81,7 @@ class LLMClient:
         level = self.detect_capabilities()
         schema = output_model.model_json_schema()
 
-        if level == SchemaSupport.RAW:
+        if level in (SchemaSupport.RAW, SchemaSupport.JSON_OBJECT):
             schema_str = json.dumps(schema, ensure_ascii=False, indent=2)
             user_prompt += f"\n\nRespond with valid JSON matching this schema:\n{schema_str}"
 
@@ -105,6 +105,8 @@ class LLMClient:
                 data = json.loads(content)
                 return output_model.model_validate(data)
             except (json.JSONDecodeError, ValidationError) as exc:
+                preview = content[:500] if content else "(empty)"
+                logger.debug("LLM raw response (first 500 chars): %s", preview)
                 if attempt < max_retries:
                     logger.warning(
                         "LLM output validation failed (attempt %d), retrying",
@@ -116,7 +118,10 @@ class LLMClient:
                         f"Please fix your JSON response to match the schema."
                     )
                     continue
-                msg = f"LLM output failed validation after {max_retries + 1} attempts: {exc}"
+                msg = (
+                    f"LLM output failed validation after {max_retries + 1} attempts: {exc}\n"
+                    f"Response preview: {preview}"
+                )
                 raise ValueError(msg) from exc
 
         raise RuntimeError("Unreachable")
@@ -126,7 +131,7 @@ class LLMClient:
             return {
                 "response_format": {
                     "type": "json_schema",
-                    "json_schema": {"name": "output", "schema": schema},
+                    "json_schema": {"name": "output", "schema": schema, "strict": True},
                 }
             }
         if level == SchemaSupport.JSON_OBJECT:

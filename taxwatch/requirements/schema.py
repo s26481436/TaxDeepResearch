@@ -50,7 +50,10 @@ class RequirementOut(BaseModel):
 class RequirementSetOut(BaseModel):
     """All scenarios the model could identify for one tax type."""
 
-    requirements: list[RequirementOut] = Field(default_factory=list)
+    requirements: list[RequirementOut] = Field(
+        ...,
+        description="從條文中識別出的所有課稅情境",
+    )
     unresolved: list[str] = Field(
         default_factory=list,
         description="條文不足以判斷、需要人工補充的項目說明",

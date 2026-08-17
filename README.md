@@ -21,6 +21,9 @@ taxwatch init-db
 taxwatch seed-sources
 
 taxwatch run --source cn-chinatax    # 抓取 → 正規化 → 快照 → diff → 分析
+taxwatch run --source cn-chinatax --tax vat          # 只跑增值稅
+taxwatch run --source cn-chinatax --tax vat,stamp    # 多稅種
+taxwatch tax-types                                    # 列出所有合法 key
 taxwatch serve                        # http://localhost:8000
 ```
 

@@ -66,18 +66,51 @@ def run(
     source: str | None = typer.Option(None, help="Source key to run"),
     all_sources: bool = typer.Option(False, "--all", help="Run all enabled sources"),
     stage: str | None = typer.Option(None, help="Stop after stage: fetch, diff, graph, analyze"),
+    tax: str = typer.Option("", "--tax", help="只跑指定稅種，逗號分隔（見 taxwatch tax-types）"),
 ):
     """Run the detection pipeline."""
+    if not source and not all_sources:
+        typer.echo("Specify --source <key> or --all")
+        raise typer.Exit(1)
+
+    tax_keys: list[str] | None = None
+    if tax.strip():
+        from taxwatch.taxonomy import TAX_TYPES, UNCLASSIFIED, by_key
+
+        tax_keys = [k.strip() for k in tax.split(",") if k.strip()]
+        valid_keys = [t.key for t in TAX_TYPES] + [UNCLASSIFIED.key]
+        bad = [k for k in tax_keys if by_key(k) is None]
+        if bad:
+            typer.echo(f"Unknown tax key(s): {', '.join(bad)}")
+            typer.echo(f"Valid keys: {', '.join(valid_keys)}")
+            raise typer.Exit(1)
+
     from taxwatch.db import init_db as _init_db
     from taxwatch.jobs.pipeline import run_pipeline
 
     _init_db()
 
-    if not source and not all_sources:
-        typer.echo("Specify --source <key> or --all")
-        raise typer.Exit(1)
+    run_pipeline(
+        source_key=source,
+        run_all=all_sources,
+        stop_after=stage,
+        tax_keys=tax_keys,
+    )
 
-    run_pipeline(source_key=source, run_all=all_sources, stop_after=stage)
+
+@app.command(name="tax-types")
+def tax_types_cmd():
+    """List all recognised tax-type keys (for use with --tax)."""
+    from taxwatch.taxonomy import TAX_TYPES, UNCLASSIFIED
+
+    typer.echo(f"{'key':<25} {'name_zh':<15} keywords")
+    typer.echo("-" * 70)
+    for t in TAX_TYPES:
+        kws = ", ".join(t.keywords[:4])
+        if len(t.keywords) > 4:
+            kws += f" … (+{len(t.keywords) - 4})"
+        typer.echo(f"{t.key:<25} {t.name_zh:<15} {kws}")
+    typer.echo(f"{UNCLASSIFIED.key:<25} {UNCLASSIFIED.name_zh:<15} (catch-all)")
 
 
 @app.command()
@@ -303,6 +336,13 @@ def extract_requirements(
     for child in stats.get("child_documents", []):
         typer.echo(f"  ├ 子法：{child}")
     typer.echo(f"抽出 {stats['requirements']} 個課稅情境")
+    if stats["requirements"] == 0:
+        typer.echo("\n⚠ 0 個情境 — 成因分解：")
+        typer.echo(f"  母法條文：{stats['provisions_supplied']} 條送入 LLM")
+        typer.echo(f"  子法：{len(stats.get('child_documents', []))} 份")
+        if stats.get("truncated_nodes"):
+            typer.echo(f"  ⚠ 被預算截斷：{stats['truncated_nodes']} 條（超出 prompt 長度上限）")
+        typer.echo("  可能原因：LLM 回傳的 JSON 缺少 requirements 鍵、或 llm_max_tokens 不足")
     if stats["dropped_citations"]:
         # The model naming provisions that were never supplied is the failure
         # mode worth shouting about — it means the guidance is partly invented.

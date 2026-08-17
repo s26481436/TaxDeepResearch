@@ -40,6 +40,7 @@ def run_pipeline(
     source_key: str | None = None,
     run_all: bool = False,
     stop_after: str | None = None,
+    tax_keys: list[str] | None = None,
 ):
     from taxwatch.jobs.runner import LocalRunner
 
@@ -59,6 +60,7 @@ def run_pipeline(
             job_type="pipeline",
             source_key=key,
             stop_after=stop_after,
+            tax_keys=tax_keys,
         )
 
 
@@ -69,6 +71,7 @@ def execute_pipeline(
     session: Session,
     source_key: str,
     stop_after: str | None = None,
+    tax_keys: list[str] | None = None,
     **_kwargs: Any,
 ) -> dict:
     stats: dict[str, Any] = {"source": source_key, "stages": {}}
@@ -80,13 +83,61 @@ def execute_pipeline(
     cfg = sources_cfg[source_key]
     source = _ensure_source(session, source_key, cfg)
 
-    connector = get_connector(cfg["connector"], cfg.get("config", {}))
+    # Resolve tax_keys: CLI --tax takes priority, then sources.yaml tax_keys
+    if not tax_keys:
+        yaml_keys = cfg.get("tax_keys")
+        if yaml_keys:
+            tax_keys = [k.strip() for k in yaml_keys if k.strip()]
+
+    # Resolve TaxType objects for filtering
+    tax_types = None
+    if tax_keys:
+        from taxwatch.taxonomy import by_key
+
+        tax_types = [by_key(k) for k in tax_keys]
+        tax_types = [t for t in tax_types if t is not None]
+        if not tax_types:
+            tax_types = None
+
+    # Layer 1: inject tax keywords into connector config (if no custom
+    # keywords already set) so the connector's existing title filter
+    # skips irrelevant documents before fetching detail pages.
+    connector_cfg = dict(cfg.get("config", {}))
+    if tax_types and not connector_cfg.get("keywords"):
+        connector_cfg["keywords"] = [
+            kw for t in tax_types for kw in t.keywords
+        ]
+    connector = get_connector(cfg["connector"], connector_cfg)
     normalizer = get_normalizer(cfg["connector"])
 
     # Stage: fetch
     logger.info("[%s] Discovering documents...", source_key)
     refs = connector.discover()
-    stats["stages"]["discover"] = {"documents_found": len(refs)}
+
+    # Layer 2: authoritative filter using the corpus-backed classifier —
+    # same function the dashboard uses, so results are consistent.
+    filtered_out = 0
+    if tax_types:
+        from taxwatch.corpus.store import make_classifier
+
+        classify_doc = make_classifier(session)
+        wanted = {t.key for t in tax_types}
+        before = len(refs)
+        refs = [
+            r for r in refs
+            if classify_doc(r.title, r.external_id).key in wanted
+        ]
+        filtered_out = before - len(refs)
+        logger.info(
+            "[%s] Tax filter %s: kept %d, filtered out %d",
+            source_key, tax_keys, len(refs), filtered_out,
+        )
+
+    discover_stats: dict[str, Any] = {"documents_found": len(refs)}
+    if tax_keys:
+        discover_stats["tax_filter"] = tax_keys
+        discover_stats["filtered_out"] = filtered_out
+    stats["stages"]["discover"] = discover_stats
     logger.info("[%s] Found %d documents", source_key, len(refs))
 
     new_snapshots = 0
