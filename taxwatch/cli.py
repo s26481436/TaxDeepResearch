@@ -200,7 +200,7 @@ def _echo_ingest_hint(country: str) -> None:
 @app.command()
 def extract_requirements(
     document: str = typer.Argument(..., help="法規的 external_id 或標題"),
-    country: str = typer.Option("CN", help="轄區代碼"),
+    country: str = typer.Option("", help="轄區代碼，留空則依法規來源自動判定"),
     tax_key: str = typer.Option("", help="稅種鍵，留空則從標題推斷"),
     dry_run: bool = typer.Option(False, help="只顯示會抽出什麼，不寫入資料庫"),
     allow_child: bool = typer.Option(
@@ -219,6 +219,7 @@ def extract_requirements(
     from taxwatch.db import get_session
     from taxwatch.db import init_db as _init_db
     from taxwatch.requirements.extract import (
+        CountryMismatch,
         MissingParentLaw,
         NoSourceDocument,
         extract_for_document,
@@ -236,11 +237,14 @@ def extract_requirements(
         stats = extract_for_document(
             session,
             document,
-            country=country,
+            country=country or None,
             tax_key=tax_key or None,
             dry_run=dry_run,
             allow_child=allow_child,
         )
+    except CountryMismatch as exc:
+        typer.echo(f"轄區不一致：指定了 {exc.expected}，但該法規來源屬於 {exc.actual}。")
+        raise typer.Exit(1) from None
     except AmbiguousDocument as exc:
         typer.echo(f"「{exc.term}」對應到多份法規，請指定其中一份：")
         for title in exc.candidates:

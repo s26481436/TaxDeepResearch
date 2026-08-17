@@ -50,6 +50,15 @@ class NoSourceDocument(LookupError):
     """Raised when no monitored document can act as the basis for a tax type."""
 
 
+class CountryMismatch(ValueError):
+    """Raised when an explicit country argument conflicts with the document's source country."""
+
+    def __init__(self, expected: str, actual: str):
+        super().__init__(f"來源轄區為 {actual}，但指定了 {expected}")
+        self.expected = expected
+        self.actual = actual
+
+
 class MissingParentLaw(LookupError):
     """Raised when only the 子法 is on file and the 母法 it implements is not.
 
@@ -71,7 +80,7 @@ def extract_for_document(
     session: Session,
     external_id: str,
     *,
-    country: str = "CN",
+    country: str | None = None,
     tax_key: str | None = None,
     dry_run: bool = False,
     allow_child: bool = False,
@@ -92,6 +101,14 @@ def extract_for_document(
         )
 
     document = session.query(Document).filter_by(external_id=view["external_id"]).first()
+    derived_country = document.source.country if (document and document.source) else "CN"
+
+    if country is not None and country.strip() != "":
+        if country.upper() != derived_country.upper():
+            raise CountryMismatch(expected=country.upper(), actual=derived_country.upper())
+        resolved_country = country.upper()
+    else:
+        resolved_country = derived_country.upper()
 
     resolved_tax_key = tax_key or _infer_tax_key(view["title"])
     tax_name = _tax_name(resolved_tax_key)
@@ -136,7 +153,7 @@ def extract_for_document(
         dropped, uncited = _upsert_requirement(
             session,
             row,
-            country=country,
+            country=resolved_country,
             tax_key=resolved_tax_key,
             document=document,
             allowed_nodes=allowed_nodes,

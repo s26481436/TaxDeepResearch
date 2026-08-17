@@ -30,7 +30,11 @@ from taxwatch.models import (
     Source,
     TaxRequirement,
 )
-from taxwatch.requirements.extract import MissingParentLaw, extract_for_document
+from taxwatch.requirements.extract import (
+    CountryMismatch,
+    MissingParentLaw,
+    extract_for_document,
+)
 from taxwatch.requirements.fields import DERIVABLE_FIELD_KEYS, FIELD_KEYS
 from taxwatch.requirements.schema import (
     ProvisionCitation,
@@ -254,6 +258,84 @@ class TestExtraction:
 
         assert stats["preview"][0]["scenario"] == "一般貨物及勞務銷售"
         assert session.query(TaxRequirement).count() == 0
+
+    def test_derives_country_from_document_source_by_default(self, session, vat_law):
+        """Extract without specifying country derives it from Document.source."""
+        # Create a TW source and law
+        tw_source = Source(key="tw-law", country="TW", connector="tw_moj_law")
+        session.add(tw_source)
+        session.flush()
+
+        tw_doc = Document(
+            source_id=tw_source.id,
+            external_id="tw-business-tax-law",
+            doc_type=DocType.STATUTE,
+            title="加值型及非加值型營業稅法",
+            issued_at=datetime(2024, 1, 1),
+        )
+        session.add(tw_doc)
+        session.flush()
+
+        tw_snapshot = Snapshot(
+            document_id=tw_doc.id,
+            content_hash="tw-bt-v1",
+            issued_at=datetime(2024, 1, 1),
+            fetched_at=datetime(2026, 8, 11),
+        )
+        session.add(tw_snapshot)
+        session.flush()
+
+        session.add(
+            ProvisionNode(
+                snapshot_id=tw_snapshot.id,
+                node_key="營業稅法#1",
+                heading="第1條",
+                text="在中華民國境內銷售貨物或勞務及進口貨物，均應依本法規定課徵加值型或非加值型之營業稅。",
+                text_hash=hashlib.sha256(b"tw").hexdigest(),
+            )
+        )
+        session.commit()
+
+        client = MagicMock(model="test-model")
+        client.generate_structured.return_value = RequirementSetOut(
+            requirements=[
+                RequirementOut(
+                    scenario="一般銷售",
+                    taxpayer_role="營業人",
+                    fields=[
+                        RequirementFieldOut(
+                            field_key="rate",
+                            value="5%",
+                            confidence=0.95,
+                            citations=[
+                                ProvisionCitation(
+                                    node_key="營業稅法#1",
+                                    title="加值型及非加值型營業稅法",
+                                    quote="加值型之營業稅",
+                                )
+                            ],
+                        )
+                    ],
+                )
+            ],
+            unresolved=[],
+        )
+        with patch("taxwatch.requirements.extract.get_llm_client", return_value=client):
+            extract_for_document(session, "tw-business-tax-law")
+
+        req = session.query(TaxRequirement).filter_by(taxpayer_role="營業人").one()
+        assert req.country == "TW"
+
+    def test_explicit_mismatched_country_raises_error(self, session, vat_law):
+        """Specifying country=TW on a CN document raises CountryMismatch."""
+        client = MagicMock(model="test-model")
+        client.generate_structured.return_value = _model_output([])
+        with patch("taxwatch.requirements.extract.get_llm_client", return_value=client):
+            with pytest.raises(CountryMismatch) as exc_info:
+                extract_for_document(session, "cn-vat-law", country="TW")
+
+        assert exc_info.value.expected == "TW"
+        assert exc_info.value.actual == "CN"
 
 
 class TestOrphanedChildDocument:
