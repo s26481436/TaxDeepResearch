@@ -210,6 +210,12 @@ def extract_for_tax(
         except NoSourceDocument:
             continue
 
+    if not dry_run:
+        suspected = detect_suspected_duplicates(session, resolved_country, tax_key)
+        overall_stats["suspected_duplicates"] = suspected
+    else:
+        overall_stats["suspected_duplicates"] = []
+
     return overall_stats
 
 
@@ -546,6 +552,71 @@ def _verify_citations(citations: list[Any], allowed_nodes: set[str]) -> tuple[li
             }
         )
     return kept, dropped
+
+
+def normalize_rate_for_comparison(rate: str) -> str:
+    """Normalize a rate/levy string for deduplication reporting without losing meaning.
+
+    Handles whitespace, full-width characters, and Chinese percentage forms
+    like 百分之三 -> 3%.
+    """
+    import re
+    from taxwatch.cn_numerals import to_arabic
+
+    text = rate.strip()
+    # Normalize full-width ascii & punctuation
+    text = text.replace("％", "%").replace("（", "(").replace("）", ")").replace("：", ":")
+    text = re.sub(r"\s+", "", text)
+
+    # Convert 百分之X -> X%
+    def _repl_pct(m: re.Match) -> str:
+        num_str = m.group(1)
+        arabic = to_arabic(num_str)
+        return f"{arabic}%"
+
+    text = re.sub(r"百分之([零〇一二两兩三四五六七八九十百]+(?:\.[0-9]+)?)", _repl_pct, text)
+    return text
+
+
+def detect_suspected_duplicates(
+    session: Session,
+    country: str,
+    tax_key: str,
+) -> list[dict[str, Any]]:
+    """Detect suspected duplicate requirement rows based on identical taxpayer_role and normalized rate.
+
+    Reporting only — does NOT automatically merge or delete rows.
+    """
+    reqs = (
+        session.query(TaxRequirement)
+        .filter_by(country=country, tax_key=tax_key)
+        .order_by(TaxRequirement.id.asc())
+        .all()
+    )
+
+    # Group by (taxpayer_role, normalized_rate)
+    grouped: dict[tuple[str, str], list[TaxRequirement]] = {}
+    for r in reqs:
+        fields = {f.field_key: f for f in r.fields}
+        rate_val = fields["rate"].value if "rate" in fields else ""
+        norm_rate = normalize_rate_for_comparison(rate_val)
+        role = r.taxpayer_role.strip()
+        grouped.setdefault((role, norm_rate), []).append(r)
+
+    suspected: list[dict[str, Any]] = []
+    for (role, norm_rate), group in grouped.items():
+        if len(group) > 1:
+            suspected.append(
+                {
+                    "taxpayer_role": role,
+                    "normalized_rate": norm_rate,
+                    "count": len(group),
+                    "scenarios": [r.scenario for r in group],
+                    "requirement_ids": [r.id for r in group],
+                }
+            )
+
+    return suspected
 
 
 def _infer_tax_key(title: str, country: str = "CN") -> str:

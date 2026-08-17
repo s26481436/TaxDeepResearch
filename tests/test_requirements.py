@@ -408,6 +408,48 @@ class TestExtraction:
         assert len(stats["skipped_duplicates"]) == 1
         assert stats["skipped_duplicates"][0]["title"] == "中华人民共和国增值税法实施条例"
 
+    def test_normalize_rate_for_comparison(self):
+        from taxwatch.requirements.extract import normalize_rate_for_comparison
+
+        assert normalize_rate_for_comparison(" 3 % ") == "3%"
+        assert normalize_rate_for_comparison("百分之三") == "3%"
+        assert normalize_rate_for_comparison("百分之十三") == "13%"
+        assert normalize_rate_for_comparison("3% 減按 2% 計算") == "3%減按2%計算"
+        assert normalize_rate_for_comparison("百分之三減按百分之二計算") == "3%減按2%計算"
+
+    def test_detect_suspected_duplicates(self, session, vat_law):
+        from taxwatch.requirements.extract import detect_suspected_duplicates
+
+        # Create two requirements with same taxpayer_role and same normalized rate
+        doc = session.query(Document).filter_by(external_id="cn-vat-law").one()
+        r1 = TaxRequirement(
+            country="CN",
+            tax_key="cn_vat",
+            scenario="小規模納稅人銷售貨物",
+            taxpayer_role="小規模納稅人 - 簡易計稅",
+            source_document_id=doc.id,
+        )
+        r2 = TaxRequirement(
+            country="CN",
+            tax_key="cn_vat",
+            scenario="小規模納稅人提供應稅勞務",
+            taxpayer_role="小規模納稅人 - 簡易計稅",
+            source_document_id=doc.id,
+        )
+        session.add_all([r1, r2])
+        session.flush()
+
+        f1 = RequirementField(requirement_id=r1.id, field_key="rate", value="3% 減按 2%")
+        f2 = RequirementField(requirement_id=r2.id, field_key="rate", value="百分之三減按百分之二")
+        session.add_all([f1, f2])
+        session.commit()
+
+        suspected = detect_suspected_duplicates(session, "CN", "cn_vat")
+        assert len(suspected) == 1
+        assert suspected[0]["taxpayer_role"] == "小規模納稅人 - 簡易計稅"
+        assert suspected[0]["count"] == 2
+        assert suspected[0]["normalized_rate"] == "3%減按2%"
+
     def test_extract_batches_provisions_when_exceeding_budget(self, session, vat_law, monkeypatch):
         """When total provisions exceed budget, provisions are split into batches and merged."""
         import taxwatch.requirements.extract as ext_mod
