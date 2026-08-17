@@ -175,22 +175,31 @@ def extract_for_document(
     resolved_tax_key = tax_key or _infer_tax_key(view["title"], country=resolved_country)
     tax_name = _tax_name(resolved_tax_key)
 
-    provisions_block, allowed_nodes, truncated_nodes = _render_provisions(view)
-    if not allowed_nodes:
+    batches = _render_batches(view)
+    all_allowed_nodes: set[str] = set().union(*(b[1] for b in batches)) if batches else set()
+    if not all_allowed_nodes:
         raise NoSourceDocument(f"{external_id} has no parsed provisions to extract from")
 
-    prompt = EXTRACTION_TEMPLATE.format(
-        tax_name=tax_name,
-        field_definitions=format_field_definitions(),
-        provisions=provisions_block,
-    )
-
     client = get_llm_client()
-    result = client.generate_structured(
-        system_prompt=SYSTEM_PROMPT,
-        user_prompt=prompt,
-        output_model=RequirementSetOut,
-    )
+    field_defs = format_field_definitions()
+
+    all_requirements: list[Any] = []
+    all_unresolved: list[str] = []
+
+    for batch_idx, (provisions_block, batch_allowed) in enumerate(batches, start=1):
+        prompt = EXTRACTION_TEMPLATE.format(
+            tax_name=tax_name,
+            field_definitions=field_defs,
+            provisions=provisions_block,
+        )
+
+        result = client.generate_structured(
+            system_prompt=SYSTEM_PROMPT,
+            user_prompt=prompt,
+            output_model=RequirementSetOut,
+        )
+        all_requirements.extend(result.requirements)
+        all_unresolved.extend(result.unresolved)
 
     child_titles = [c["title"] for c in view.get("child_documents", [])]
     stats: dict[str, Any] = {
@@ -198,28 +207,29 @@ def extract_for_document(
         "source_document": view["title"],
         "child_documents": child_titles,
         "missing_parent": missing_parent,
-        "provisions_supplied": len(allowed_nodes),
-        "requirements": len(result.requirements),
-        "unresolved": result.unresolved,
-        "truncated_nodes": truncated_nodes,
+        "batches": len(batches),
+        "provisions_supplied": len(all_allowed_nodes),
+        "requirements": len(all_requirements),
+        "unresolved": all_unresolved,
+        "truncated_nodes": 0,
         "dropped_citations": 0,
         "uncited_fields": 0,
     }
 
     if dry_run:
         stats["preview"] = [
-            {"scenario": r.scenario, "taxpayer_role": r.taxpayer_role} for r in result.requirements
+            {"scenario": r.scenario, "taxpayer_role": r.taxpayer_role} for r in all_requirements
         ]
         return stats
 
-    for row in result.requirements:
+    for row in all_requirements:
         dropped, uncited = _upsert_requirement(
             session,
             row,
             country=resolved_country,
             tax_key=resolved_tax_key,
             document=document,
-            allowed_nodes=allowed_nodes,
+            allowed_nodes=all_allowed_nodes,
             model=client.model,
         )
         stats["dropped_citations"] += dropped
@@ -227,8 +237,9 @@ def extract_for_document(
 
     session.commit()
     logger.info(
-        "Extracted %d requirement rows for %s (%d citations dropped as unverifiable)",
+        "Extracted %d requirement rows across %d batches for %s (%d citations dropped as unverifiable)",
         stats["requirements"],
+        stats["batches"],
         resolved_tax_key,
         stats["dropped_citations"],
     )
@@ -238,47 +249,68 @@ def extract_for_document(
 # ---------- internals ----------
 
 
-def _render_provisions(view: dict[str, Any]) -> tuple[str, set[str], int]:
-    """Lay out the consolidated view for the prompt, collecting valid node keys."""
-    lines: list[str] = []
-    allowed: set[str] = set()
-    budget = _MAX_PROVISION_CHARS
+def _render_batches(view: dict[str, Any]) -> list[tuple[str, set[str]]]:
+    """Split consolidated view provisions into batches that fit within _MAX_PROVISION_CHARS.
 
-    truncated = 0
-
-    def emit(text: str) -> bool:
-        nonlocal budget, truncated
-        if budget - len(text) < 0:
-            truncated += 1
-            return False
-        lines.append(text)
-        budget -= len(text)
-        return True
+    Splits occur on article/supplement boundaries.
+    """
+    # 1. Build a list of self-contained provision blocks: (block_text, node_keys_in_block)
+    blocks: list[tuple[str, set[str]]] = []
 
     for article in view["articles"]:
-        block = f"\n### [{article['node_key']}] {article['heading']}\n{article['text']}"
-        if not emit(block):
-            break
-        allowed.add(article["node_key"])
+        art_lines = [f"\n### [{article['node_key']}] {article['heading']}\n{article['text']}"]
+        art_nodes = {article["node_key"]}
 
-        for supplement in article["supplements"]:
-            ok = emit(
+        for supplement in article.get("supplements", []):
+            art_lines.append(
                 f"\n  補充規定 [{supplement['node_key']}] "
                 f"《{supplement['document_title']}》{supplement['heading']}\n"
                 f"  {supplement['text']}"
             )
-            if ok:
-                allowed.add(supplement["node_key"])
+            art_nodes.add(supplement["node_key"])
+
+        blocks.append(("\n".join(art_lines), art_nodes))
 
     for supplement in view.get("unanchored_supplements", []):
-        ok = emit(
+        block = (
             f"\n### [{supplement['node_key']}] "
             f"《{supplement['document_title']}》{supplement['heading']}\n{supplement['text']}"
         )
-        if ok:
-            allowed.add(supplement["node_key"])
+        blocks.append((block, {supplement["node_key"]}))
 
-    return "\n".join(lines), allowed, truncated
+    if not blocks:
+        return []
+
+    batches: list[tuple[str, set[str]]] = []
+    current_lines: list[str] = []
+    current_nodes: set[str] = set()
+    current_chars = 0
+
+    for block_text, block_nodes in blocks:
+        block_len = len(block_text)
+        # If adding this block exceeds budget (and current batch is not empty), finish current batch
+        if current_chars + block_len > _MAX_PROVISION_CHARS and current_lines:
+            batches.append(("\n".join(current_lines), current_nodes))
+            current_lines = []
+            current_nodes = set()
+            current_chars = 0
+
+        current_lines.append(block_text)
+        current_nodes.update(block_nodes)
+        current_chars += block_len
+
+    if current_lines:
+        batches.append(("\n".join(current_lines), current_nodes))
+
+    return batches
+
+
+def _render_provisions(view: dict[str, Any]) -> tuple[str, set[str], int]:
+    """Lay out the consolidated view for the prompt, collecting valid node keys."""
+    batches = _render_batches(view)
+    if not batches:
+        return "", set(), 0
+    return batches[0][0], batches[0][1], 0
 
 
 def _upsert_requirement(
@@ -355,6 +387,10 @@ def _upsert_requirement(
         confidence = field_out.confidence if citations else 0.0
         if not citations:
             uncited += 1
+
+        # Across multiple batches: do not overwrite a previously cited, verified cell with an uncited one
+        if current is not None and current.citations and not citations:
+            continue
 
         if current is None:
             current = RequirementField(
