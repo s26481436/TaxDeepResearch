@@ -244,10 +244,26 @@ def extract_for_document(
 
     all_requirements: list[Any] = []
     all_unresolved: list[str] = []
+    known_scenarios: set[tuple[str, str]] = set()
 
     for batch_idx, (provisions_block, batch_allowed) in enumerate(batches, start=1):
+        if known_scenarios:
+            scenarios_list = "\n".join(
+                f"- 情境：{sc} | 納稅人身分：{role}" for sc, role in known_scenarios if sc
+            )
+            existing_section = (
+                f"\n## 前面批次已識別之情境清單\n\n"
+                f"以下是前面批次已整理出的情境與身分。若本批條文所屬情境已包含在下列清單中，"
+                f"**必須逐字沿用該情境的 scenario 與 taxpayer_role 措辭**，不要另創新說法；"
+                f"只有確定為全新情境時才新增：\n\n"
+                f"{scenarios_list}\n"
+            )
+        else:
+            existing_section = ""
+
         prompt = EXTRACTION_TEMPLATE.format(
             tax_name=tax_name,
+            existing_scenarios_section=existing_section,
             field_definitions=field_defs,
             provisions=provisions_block,
         )
@@ -259,6 +275,11 @@ def extract_for_document(
         )
         all_requirements.extend(result.requirements)
         all_unresolved.extend(result.unresolved)
+        for r in result.requirements:
+            scenario_str = (r.scenario or "").strip()
+            role_str = (r.taxpayer_role or "").strip()
+            if scenario_str:
+                known_scenarios.add((scenario_str, role_str))
 
     child_titles = [c["title"] for c in view.get("child_documents", [])]
     stats: dict[str, Any] = {

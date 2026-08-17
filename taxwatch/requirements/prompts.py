@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-PROMPT_VERSION = "req-v2"
+PROMPT_VERSION = "req-v3"
 
 SYSTEM_PROMPT = """你是稅務合規分析師，負責把法規條文整理成企業可直接依循的申報規範。
 
@@ -25,7 +25,7 @@ SYSTEM_PROMPT = """你是稅務合規分析師，負責把法規條文整理成�
 EXTRACTION_TEMPLATE = """## 任務
 
 從以下法規條文中，整理出「{tax_name}」的申報規範。
-
+{existing_scenarios_section}
 ## 欄位定義
 
 每個規範列需填寫下列欄位（field_key 必須完全一致）：

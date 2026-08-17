@@ -92,12 +92,16 @@ def vat_law(session):
     return doc
 
 
-def _model_output(fields: list[RequirementFieldOut]) -> RequirementSetOut:
+def _model_output(
+    fields: list[RequirementFieldOut],
+    scenario: str = "一般貨物及勞務銷售",
+    taxpayer_role: str = "一般納稅人 - 一般計稅",
+) -> RequirementSetOut:
     return RequirementSetOut(
         requirements=[
             RequirementOut(
-                scenario="一般貨物及勞務銷售",
-                taxpayer_role="一般納稅人 - 一般計稅",
+                scenario=scenario,
+                taxpayer_role=taxpayer_role,
                 fields=fields,
             )
         ],
@@ -500,6 +504,43 @@ class TestExtraction:
         fields = {f.field_key: f for f in req.fields}
         assert "rate" in fields and fields["rate"].value == "13%"
         assert "filing_deadline" in fields and fields["filing_deadline"].value == "次月15日內"
+
+    def test_extract_batches_shares_known_scenarios(self, session, vat_law, monkeypatch):
+        """Batch 2 prompt contains known scenarios from batch 1 to reduce fragmentation."""
+        import taxwatch.requirements.extract as ext_mod
+
+        monkeypatch.setattr(ext_mod, "_MAX_PROVISION_CHARS", 30)
+
+        prompts_received = []
+
+        def mock_generate(system_prompt, user_prompt, output_model):
+            prompts_received.append(user_prompt)
+            return _model_output(
+                [
+                    RequirementFieldOut(
+                        field_key="rate",
+                        value="13%",
+                        confidence=0.95,
+                        citations=[ProvisionCitation(node_key="增值税法#2")],
+                    )
+                ],
+                scenario="一般納稅人銷售貨物",
+                taxpayer_role="一般納稅人 - 一般計稅",
+            )
+
+        client = MagicMock(model="test-model")
+        client.generate_structured.side_effect = mock_generate
+
+        with patch("taxwatch.requirements.extract.get_llm_client", return_value=client):
+            ext_mod.extract_for_document(session, "cn-vat-law")
+
+        assert len(prompts_received) >= 2
+        # Batch 1 has no previous scenarios
+        assert "前面批次已識別之情境清單" not in prompts_received[0]
+        # Batch 2 includes the scenario emitted by batch 1
+        assert "前面批次已識別之情境清單" in prompts_received[1]
+        assert "一般納稅人銷售貨物" in prompts_received[1]
+        assert "一般納稅人 - 一般計稅" in prompts_received[1]
 
 
 class TestOrphanedChildDocument:
