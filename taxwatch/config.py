@@ -26,8 +26,14 @@ class Settings(BaseSettings):
     # The gateway in front of this deployment answers overload with 400 rather
     # than 429, and a batched extraction fires eight to ten calls in a row —
     # one transient refusal used to kill the whole run.
-    llm_retry_attempts: int = 5
-    llm_retry_base_delay: float = 2.0
+    # The gateway is fronted by WSO2 APIM, whose circuit breaker *suspends* the
+    # AI endpoint after an upstream error. Every call during that window returns
+    # 400 regardless of spacing, so the retry schedule has to outlast the
+    # suspension rather than probe it quickly: WSO2 suspension starts around 30s
+    # and doubles up to several minutes.
+    llm_retry_attempts: int = 6
+    llm_retry_base_delay: float = 5.0
+    llm_retry_max_delay: float = 120.0
     llm_retry_on_bad_request: bool = True
     # Seconds to wait between batches. The gateway returns 400 when several
     # requests land together, so a batched run paces itself rather than

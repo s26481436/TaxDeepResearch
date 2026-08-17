@@ -29,6 +29,49 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
+
+# WSO2 APIM announces a tripped circuit breaker in the response body rather than
+# through the status code — the call comes back as a plain 400, indistinguishable
+# from a malformed request until you read the payload.
+_SUSPENSION_MARKERS = (
+    "suspended",
+    "303001",
+    "address endpoint",
+    "currently , address endpoint",
+)
+
+
+def _error_body(exc: Exception) -> str:
+    for attr in ("message", "body"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, str) and value:
+            return value.lower()
+        if isinstance(value, dict):
+            return json.dumps(value, ensure_ascii=False).lower()
+    response = getattr(exc, "response", None)
+    text = getattr(response, "text", None)
+    return text.lower() if isinstance(text, str) else ""
+
+
+def _is_suspension(exc: Exception) -> bool:
+    body = _error_body(exc)
+    return any(marker in body for marker in _SUSPENSION_MARKERS)
+
+
+def _retry_after_seconds(exc: Exception) -> float | None:
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if not headers:
+        return None
+    raw = headers.get("retry-after") or headers.get("Retry-After")
+    if not raw:
+        return None
+    try:
+        return max(0.0, float(raw))
+    except (TypeError, ValueError):
+        return None
+
+
 class SchemaSupport(StrEnum):
     JSON_SCHEMA = "json_schema"
     JSON_OBJECT = "json_object"
@@ -53,6 +96,7 @@ class LLMClient:
         self.max_tokens = settings.llm_max_tokens
         self.retry_attempts = settings.llm_retry_attempts
         self.retry_base_delay = settings.llm_retry_base_delay
+        self.retry_max_delay = settings.llm_retry_max_delay
         self.retry_on_bad_request = settings.llm_retry_on_bad_request
         self._schema_support: SchemaSupport | None = None
 
@@ -181,6 +225,24 @@ class LLMClient:
         # malformed request still fails, only later and more loudly.
         return exc.status_code == 400 and self.retry_on_bad_request
 
+    def _backoff_delay(self, attempt: int, exc: Exception) -> float:
+        """How long to wait before retry `attempt`.
+
+        Equal jitter, not full jitter. Full jitter can draw a near-zero wait,
+        which is fine for a busy server but wrong for a circuit breaker: WSO2
+        APIM suspends the endpoint outright, and every call inside that window
+        is refused no matter how it is spaced. A retry that fires immediately
+        just burns an attempt against a door that is still shut, so half of each
+        delay is fixed and only the other half is randomised.
+        """
+        retry_after = _retry_after_seconds(exc)
+        if retry_after is not None:
+            # The gateway said when to come back; arguing with it is pointless.
+            return min(retry_after, self.retry_max_delay)
+
+        capped = min(self.retry_base_delay * (2 ** (attempt - 1)), self.retry_max_delay)
+        return capped / 2 + random.uniform(0, capped / 2)
+
     def _create_with_retry(self, **create_kwargs: Any):
         last: Exception | None = None
 
@@ -195,15 +257,13 @@ class LLMClient:
                 if not self._is_retryable(exc) or attempt >= self.retry_attempts:
                     raise
                 last = exc
-                # Full jitter: a batch run fires many requests back to back, and
-                # a fixed backoff would march them all into the gateway together
-                # on every wave.
-                delay = random.uniform(0, self.retry_base_delay * (2 ** (attempt - 1)))
+                delay = self._backoff_delay(attempt, exc)
                 status = getattr(exc, "status_code", "-")
                 logger.warning(
-                    "LLM call failed (%s status=%s), attempt %d/%d; retrying in %.1fs",
+                    "LLM call failed (%s status=%s%s), attempt %d/%d; retrying in %.1fs",
                     type(exc).__name__,
                     status,
+                    ", endpoint suspended" if _is_suspension(exc) else "",
                     attempt,
                     self.retry_attempts,
                     delay,
