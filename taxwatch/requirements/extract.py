@@ -370,6 +370,7 @@ def extract_for_document(
         "child_documents": child_titles,
         "missing_parent": missing_parent,
         "batches": len(batches),
+        "skeleton_chars": len(skeleton_text),
         "failed_batches": failed_batches,
         "provisions_supplied": len(all_allowed_nodes),
         "requirements": len(all_requirements),
@@ -511,7 +512,21 @@ def _render_batches(
         return skeleton_text, skeleton_nodes, [("", set())]
 
     # Available budget per batch for supplements = budget - skeleton_len
-    supp_budget = max(500, budget - skeleton_len)
+    # The skeleton is a fixed per-batch cost, not something to subtract from the
+    # batch budget. Deducting it is self-amplifying: a bigger skeleton leaves
+    # less room for supplements, which makes more batches, which sends the
+    # skeleton more times. Skeleton size and batch count would multiply rather
+    # than add. So the budget governs supplements only, and the hard cap governs
+    # the total.
+    supp_budget = budget
+    if skeleton_len + supp_budget > _MAX_PROVISION_CHARS:
+        supp_budget = max(500, _MAX_PROVISION_CHARS - skeleton_len)
+        logger.warning(
+            "Skeleton (%d chars) leaves only %d for supplements under the %d cap",
+            skeleton_len,
+            supp_budget,
+            _MAX_PROVISION_CHARS,
+        )
 
     batches: list[tuple[str, set[str]]] = []
     current_lines: list[str] = []

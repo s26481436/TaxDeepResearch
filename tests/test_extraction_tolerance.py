@@ -55,3 +55,54 @@ def test_batch_size_never_exceeds_hard_cap(monkeypatch):
 def test_all_batches_failing_raises(monkeypatch):
     """Nothing at all must not be reported as 'this statute has no requirements'."""
     assert issubclass(ext.LLMBatchFailure, RuntimeError)
+
+
+def test_skeleton_is_not_deducted_from_the_batch_budget(monkeypatch):
+    """Deducting the skeleton would make skeleton size and batch count multiply.
+
+    The skeleton rides along with every batch, so charging it against the batch
+    budget shrinks the room for supplements, which creates more batches, which
+    sends the skeleton more times.
+    """
+
+    class S:
+        requirements_batch_chars = 2_000
+
+    monkeypatch.setattr("taxwatch.config.get_settings", lambda: S())
+    monkeypatch.setattr(ext, "_MAX_PROVISION_CHARS", 1_000_000)
+
+    view = _view(10)  # a fat skeleton
+    view["unanchored_supplements"] = [
+        {
+            "node_key": f"公告#{i}",
+            "heading": f"第{i}条",
+            "document_title": "公告",
+            "text": "y" * 400,
+        }
+        for i in range(1, 11)
+    ]
+
+    skeleton, _, batches = ext._render_batches(view)
+    assert skeleton, "parent articles must form the skeleton"
+
+    # 10 supplements of ~450 chars against a 2000-char budget: ~3 batches.
+    # Were the skeleton deducted, the budget would collapse and this would blow up.
+    assert len(batches) <= 4
+
+
+def test_total_per_batch_respects_the_hard_cap(monkeypatch):
+    class S:
+        requirements_batch_chars = 50_000
+
+    monkeypatch.setattr("taxwatch.config.get_settings", lambda: S())
+    monkeypatch.setattr(ext, "_MAX_PROVISION_CHARS", 5_000)
+
+    view = _view(20)
+    view["unanchored_supplements"] = [
+        {"node_key": f"公告#{i}", "heading": "x", "document_title": "公告", "text": "y" * 300}
+        for i in range(1, 21)
+    ]
+
+    skeleton, _, batches = ext._render_batches(view)
+    for text, _nodes in batches:
+        assert len(skeleton) + len(text) <= 5_000 + 500
