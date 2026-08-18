@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
+from fastapi.testclient import TestClient
 
+from taxwatch.api.routes import dashboard as dashboard_route
 from taxwatch.models import (
     Change,
     ChangeType,
@@ -21,6 +23,15 @@ from taxwatch.models import (
 )
 from taxwatch.services.dashboard import get_change_detail, list_changes
 from taxwatch.services.requirements import affected_by_node_keys
+from taxwatch.web import app as web_app
+
+
+@pytest.fixture
+def client(session, monkeypatch):
+    monkeypatch.setattr(session, "close", lambda: None)
+    monkeypatch.setattr(dashboard_route, "get_session", lambda: session)
+    monkeypatch.setattr(web_app, "get_session", lambda: session)
+    return TestClient(web_app.app)
 
 
 @pytest.fixture
@@ -204,3 +215,24 @@ def test_list_changes_and_detail_affected_requirements(session, sample_data):
     detail99 = get_change_detail(session, sample_data["c2"].id)
     assert "affected_requirements" in detail99
     assert detail99["affected_requirements"] == []
+
+
+def test_api_changes_endpoints_include_affected_requirements(client, sample_data):
+    """Verify API /api/changes and /api/changes/{id} return affected_requirements."""
+    # List endpoint
+    res = client.get("/api/changes?days=30")
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data) >= 2
+    c12 = next(c for c in data if c["node_key"] == "增值税法#12")
+    assert "affected_requirements" in c12
+    assert len(c12["affected_requirements"]) == 2
+    assert c12["affected_requirements"][0]["taxpayer_role"] == "小規模納稅人 - 簡易計稅"
+
+    # Detail endpoint
+    c1_id = sample_data["c1"].id
+    res_detail = client.get(f"/api/changes/{c1_id}")
+    assert res_detail.status_code == 200
+    detail_data = res_detail.json()
+    assert "affected_requirements" in detail_data
+    assert len(detail_data["affected_requirements"]) == 2
