@@ -84,14 +84,28 @@ def list_changes(
         query = query.filter(Change.severity == severity)
 
     classify_doc = make_classifier(session)
-    rows: list[dict[str, Any]] = []
+    matched_rows: list[tuple[Any, Any, Any, Any, Any]] = []
     for change, doc, source, analysis in query.order_by(Change.detected_at.desc()).all():
         tax_type = classify_doc(doc.title, doc.external_id, source.country)
         if tax_key and tax_type.key != tax_key:
             continue
-        rows.append(_change_row(change, doc, source, analysis, tax_type))
-        if len(rows) >= limit:
+        matched_rows.append((change, doc, source, analysis, tax_type))
+        if len(matched_rows) >= limit:
             break
+
+    from taxwatch.graph.resolver import normalize_entity_key
+    from taxwatch.services.requirements import affected_by_node_keys
+
+    node_keys = [change.node_key for change, _, _, _, _ in matched_rows]
+    affected_map = affected_by_node_keys(session, node_keys)
+
+    rows: list[dict[str, Any]] = []
+    for change, doc, source, analysis, tax_type in matched_rows:
+        row_dict = _change_row(change, doc, source, analysis, tax_type)
+        norm_key = normalize_entity_key(change.node_key)
+        row_dict["affected_requirements"] = affected_map.get(norm_key, [])
+        rows.append(row_dict)
+
     return rows
 
 
@@ -110,6 +124,14 @@ def get_change_detail(session: Session, change_id: int) -> dict[str, Any]:
     change, doc, source, analysis = row
     classify_doc = make_classifier(session)
     detail = _change_row(change, doc, source, analysis, classify_doc(doc.title, doc.external_id, source.country))
+
+    from taxwatch.graph.resolver import normalize_entity_key
+    from taxwatch.services.requirements import affected_by_node_keys
+
+    affected_map = affected_by_node_keys(session, [change.node_key])
+    norm_key = normalize_entity_key(change.node_key)
+    detail["affected_requirements"] = affected_map.get(norm_key, [])
+
     detail["diff_text"] = change.diff_text
     detail["old_text"], detail["new_text"] = _provision_texts(session, change)
     detail["analysis"] = (

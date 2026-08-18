@@ -182,3 +182,25 @@ def test_single_query_across_multiple_changes(session, sample_data):
         assert len(query_calls) == 1
     finally:
         session.query = original_query
+
+
+def test_list_changes_and_detail_affected_requirements(session, sample_data):
+    """Verify list_changes and get_change_detail include affected_requirements."""
+    changes = list_changes(session, days=30)
+    assert len(changes) >= 2
+    c12 = next(c for c in changes if c["node_key"] == "增值税法#12")
+    c99 = next(c for c in changes if c["node_key"] == "增值税法#99")
+
+    assert "affected_requirements" in c12
+    assert len(c12["affected_requirements"]) == 2
+    assert "affected_requirements" in c99
+    assert c99["affected_requirements"] == []
+
+    # get_change_detail
+    detail12 = get_change_detail(session, sample_data["c1"].id)
+    assert "affected_requirements" in detail12
+    assert len(detail12["affected_requirements"]) == 2
+
+    detail99 = get_change_detail(session, sample_data["c2"].id)
+    assert "affected_requirements" in detail99
+    assert detail99["affected_requirements"] == []
