@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
+from taxwatch.graph.resolver import normalize_entity_key
 from taxwatch.models import (
     Change,
     Document,
@@ -20,6 +22,59 @@ from taxwatch.taxonomy import UNCLASSIFIED, by_key
 
 class RequirementNotFound(LookupError):
     """Raised when no requirement row matches the requested identifier."""
+
+
+def affected_by_node_keys(
+    session: Session,
+    node_keys: Iterable[str],
+) -> dict[str, list[dict[str, Any]]]:
+    """Find requirement fields affected by given provision node keys.
+
+    Returns a mapping of normalized_node_key -> list of affected field details.
+    Builds an in-memory index in a single query across all RequirementFields
+    with citations without filtering by needs_review (reviewed cells citing
+    the provision are still affected).
+    """
+    target_keys = {normalize_entity_key(k) for k in node_keys if k}
+    if not target_keys:
+        return {}
+
+    # Query all RequirementFields with their parent TaxRequirement eagerly loaded
+    fields = (
+        session.query(RequirementField)
+        .options(joinedload(RequirementField.requirement))
+        .all()
+    )
+
+    index: dict[str, list[dict[str, Any]]] = {k: [] for k in target_keys}
+
+    for field in fields:
+        req = field.requirement
+        if not req:
+            continue
+
+        field_info = {
+            "requirement_id": req.id,
+            "country": req.country,
+            "tax_key": req.tax_key,
+            "tax_name": _tax_name(req.tax_key),
+            "taxpayer_role": req.taxpayer_role,
+            "scenario": req.scenario,
+            "field_key": field.field_key,
+            "field_label": label(field.field_key),
+            "value": field.value,
+            "needs_review": field.needs_review,
+            "source": field.source.value if field.source else None,
+        }
+
+        matched_keys = set()
+        for raw_k in field.cited_node_keys:
+            norm_k = normalize_entity_key(raw_k)
+            if norm_k in target_keys and norm_k not in matched_keys:
+                index[norm_k].append(field_info)
+                matched_keys.add(norm_k)
+
+    return index
 
 
 def list_requirements(
