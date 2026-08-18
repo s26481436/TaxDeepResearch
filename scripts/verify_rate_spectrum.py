@@ -42,6 +42,27 @@ for ver, group in sorted(by_ver.items()):
     hits = {k: ("Y" if re.search(p, blob) else "N") for k, p in WANTED.items()}
     out.append(f"V2 {ver} rows={len(group)} rated={len(rates)} " + " ".join(f"{k}={v}" for k, v in hits.items()))
 
+# 欄位狀態分布（req-v4 起）：驗收 not_applicable 是否生效
+try:
+    from taxwatch.models import FieldState  # noqa: F401
+
+    for ver, group in sorted(by_ver.items()):
+        counts: dict[str, int] = {}
+        review = 0
+        for r in group:
+            for f in r.fields:
+                key = getattr(f.state, "value", str(f.state))
+                counts[key] = counts.get(key, 0) + 1
+                if key == "not_applicable" and f.needs_review:
+                    review += 1
+        if counts:
+            out.append(
+                f"V4 {ver} " + " ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+                + f" na_flagged={review}"
+            )
+except ImportError:
+    out.append("V4 (此分支無 FieldState)")
+
 # 情境碎片化：同 taxpayer_role 出現幾種 scenario
 frag = {}
 for r in rows:
