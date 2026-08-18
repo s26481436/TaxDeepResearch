@@ -37,6 +37,53 @@
 </div>
 
 <div class="panel">
+  <div class="panel-hd">
+    <h2>受影響的申報情境與欄位</h2>
+    {% if change.affected_requirements %}
+      <span class="tag">{{ change.affected_requirements | length }} 個欄位依據此條</span>
+    {% endif %}
+  </div>
+  <div class="panel-bd">
+    {% if change.affected_requirements %}
+      <div class="tbl-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>課稅情境</th>
+              <th>納稅人身分</th>
+              <th>欄位</th>
+              <th>目前內容</th>
+              <th>狀態</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in change.affected_requirements %}
+            <tr>
+              <td>
+                <a href="/requirements/{{ r.requirement_id }}"><strong>{{ r.scenario }}</strong></a>
+              </td>
+              <td>{{ r.taxpayer_role }}</td>
+              <td><strong>{{ r.field_label }}</strong> <span class="mono" style="font-size:11px;color:var(--muted)">({{ r.field_key }})</span></td>
+              <td>{{ r.value or '—' }}</td>
+              <td>
+                {% if r.needs_review %}
+                  <span class="badge badge-critical">待覆核</span>
+                {% else %}
+                  <span class="badge badge-minor">已覆核</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty">尚無對應的申報規範（目前無任何課稅情境引用此條文節點）。</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel">
   <div class="panel-hd"><h2>條文對照</h2></div>
   <div class="panel-bd">
     <div class="diff">

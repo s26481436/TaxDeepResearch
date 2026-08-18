@@ -53,6 +53,20 @@
             <a href="/changes/{{ c.id }}"><strong>{{ c.document_title }}</strong></a>
             <div class="mono" style="color:var(--muted);font-size:11.5px">{{ c.node_key }}</div>
             {% if c.summary %}<div style="font-size:12.5px;color:var(--muted);margin-top:2px">{{ c.summary }}</div>{% endif %}
+            <div style="margin-top:6px;font-size:12px;border-left:2px solid var(--accent, #3b82f6);padding-left:6px">
+              {% if c.affected_requirements %}
+                <span style="font-weight:600;color:var(--text, #333)">受影響情境：</span>
+                {% for r in c.affected_requirements %}
+                  <div style="margin-top:2px">
+                    <a href="/requirements/{{ r.requirement_id }}">{{ r.scenario }}</a>
+                    <span style="color:var(--muted)">（{{ r.taxpayer_role }} · {{ r.field_label }}: {{ r.value or '—' }}）</span>
+                    {% if r.needs_review %}<span class="badge badge-critical" style="font-size:10px;padding:1px 4px">待覆核</span>{% endif %}
+                  </div>
+                {% endfor %}
+              {% else %}
+                <span style="color:var(--muted)">尚無對應的申報規範</span>
+              {% endif %}
+            </div>
           </td>
           <td><a href="/tax-types/{{ c.tax_key }}">{{ c.tax_name }}</a></td>
           <td>{{ c.country }}</td>
