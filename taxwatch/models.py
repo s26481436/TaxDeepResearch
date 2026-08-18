@@ -55,6 +55,12 @@ class RelationType(enum.StrEnum):
     CITES = "cites"
 
 
+class FieldState(enum.StrEnum):
+    DERIVED = "derived"  # 有條文依據
+    NOT_STATED = "not_stated"  # 條文未明定
+    NOT_APPLICABLE = "not_applicable"  # 本情境不適用此欄位
+
+
 class ExtractionMethod(enum.StrEnum):
     REGEX = "regex"
     LLM = "llm"
@@ -377,6 +383,9 @@ class RequirementField(Base):
     citations: Mapped[list] = mapped_column(JSON, default=list)
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     source: Mapped[FieldSource] = mapped_column(Enum(FieldSource), default=FieldSource.LLM)
+    state: Mapped[FieldState] = mapped_column(
+        Enum(FieldState), default=FieldState.DERIVED
+    )
 
     needs_review: Mapped[bool] = mapped_column(default=False)
     review_reason: Mapped[str] = mapped_column(Text, default="")

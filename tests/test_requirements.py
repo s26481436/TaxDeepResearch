@@ -21,8 +21,12 @@ from taxwatch.models import (
     ChangeType,
     DocType,
     Document,
+    ExtractionMethod,
     FieldSource,
+    LegalEntity,
+    LegalRelation,
     ProvisionNode,
+    RelationType,
     RequirementField,
     RequirementStatus,
     Severity,
@@ -92,12 +96,16 @@ def vat_law(session):
     return doc
 
 
-def _model_output(fields: list[RequirementFieldOut]) -> RequirementSetOut:
+def _model_output(
+    fields: list[RequirementFieldOut],
+    scenario: str = "一般貨物及勞務銷售",
+    taxpayer_role: str = "一般納稅人 - 一般計稅",
+) -> RequirementSetOut:
     return RequirementSetOut(
         requirements=[
             RequirementOut(
-                scenario="一般貨物及勞務銷售",
-                taxpayer_role="一般納稅人 - 一般計稅",
+                scenario=scenario,
+                taxpayer_role=taxpayer_role,
                 fields=fields,
             )
         ],
@@ -362,6 +370,94 @@ class TestExtraction:
         req = session.query(TaxRequirement).filter_by(tax_key="cn_vat").one()
         assert req.country == "CN"
 
+    def test_extract_for_tax_deduplicates_by_root_document(self, session, vat_law):
+        """Documents in the same tree (e.g. child regulation and parent statute) are deduped to the root."""
+        from taxwatch.requirements.extract import extract_for_tax
+
+        # Add child regulation belonging to the same root tree
+        source = session.query(Source).filter_by(key="cn-chinatax").one()
+        child_doc = Document(
+            source_id=source.id,
+            external_id="cn-vat-reg",
+            title="中华人民共和国增值税法实施条例",
+            doc_type=DocType.REGULATION,
+            url="https://example.gov.cn/reg",
+        )
+        session.add(child_doc)
+        session.flush()
+
+        snap = Snapshot(
+            document_id=child_doc.id,
+            content_hash="hash-child",
+            issued_at=datetime(2025, 6, 30),
+            fetched_at=datetime(2026, 8, 12),
+        )
+        session.add(snap)
+        session.flush()
+
+        p1 = ProvisionNode(
+            snapshot_id=snap.id,
+            node_key="增值税法实施条例#1",
+            heading="第1条",
+            text="根据《增值税法》制定本条例。",
+            text_hash="hash-p1",
+        )
+        session.add(p1)
+        session.commit()
+
+        client = MagicMock(model="test-model")
+        client.generate_structured.return_value = _model_output([])
+
+        with patch("taxwatch.requirements.extract.get_llm_client", return_value=client):
+            stats = extract_for_tax(session, "cn_vat")
+
+        # Even though 2 documents exist, they share the same root (增值税法) -> processed 1, skipped 1
+        assert stats["documents_processed"] == 1
+        assert len(stats["skipped_duplicates"]) == 1
+        assert stats["skipped_duplicates"][0]["title"] == "中华人民共和国增值税法实施条例"
+
+    def test_normalize_rate_for_comparison(self):
+        from taxwatch.requirements.extract import normalize_rate_for_comparison
+
+        assert normalize_rate_for_comparison(" 3 % ") == "3%"
+        assert normalize_rate_for_comparison("百分之三") == "3%"
+        assert normalize_rate_for_comparison("百分之十三") == "13%"
+        assert normalize_rate_for_comparison("3% 減按 2% 計算") == "3%減按2%計算"
+        assert normalize_rate_for_comparison("百分之三減按百分之二計算") == "3%減按2%計算"
+
+    def test_detect_suspected_duplicates(self, session, vat_law):
+        from taxwatch.requirements.extract import detect_suspected_duplicates
+
+        # Create two requirements with same taxpayer_role and same normalized rate
+        doc = session.query(Document).filter_by(external_id="cn-vat-law").one()
+        r1 = TaxRequirement(
+            country="CN",
+            tax_key="cn_vat",
+            scenario="小規模納稅人銷售貨物",
+            taxpayer_role="小規模納稅人 - 簡易計稅",
+            source_document_id=doc.id,
+        )
+        r2 = TaxRequirement(
+            country="CN",
+            tax_key="cn_vat",
+            scenario="小規模納稅人提供應稅勞務",
+            taxpayer_role="小規模納稅人 - 簡易計稅",
+            source_document_id=doc.id,
+        )
+        session.add_all([r1, r2])
+        session.flush()
+
+        f1 = RequirementField(requirement_id=r1.id, field_key="rate", value="3% 減按 2%")
+        f2 = RequirementField(requirement_id=r2.id, field_key="rate", value="百分之三減按百分之二")
+        session.add_all([f1, f2])
+        session.commit()
+
+        suspected = detect_suspected_duplicates(session, "CN", "cn_vat")
+        assert len(suspected) == 1
+        assert suspected[0]["taxpayer_role"] == "小規模納稅人 - 簡易計稅"
+        assert suspected[0]["count"] == 2
+        assert suspected[0]["normalized_rate"] == "3%減按2%"
+
     def test_extract_batches_provisions_when_exceeding_budget(self, session, vat_law, monkeypatch):
         """When total provisions exceed budget, provisions are split into batches and merged."""
         import taxwatch.requirements.extract as ext_mod
@@ -412,6 +508,177 @@ class TestExtraction:
         fields = {f.field_key: f for f in req.fields}
         assert "rate" in fields and fields["rate"].value == "13%"
         assert "filing_deadline" in fields and fields["filing_deadline"].value == "次月15日內"
+
+    def test_extract_batches_includes_parent_skeleton_in_every_batch(self, session, vat_law, monkeypatch):
+        """Every batch prompt includes the parent statute skeleton for cross-referencing."""
+        import taxwatch.requirements.extract as ext_mod
+
+        # Force supplements to be split into multiple batches
+        monkeypatch.setattr(ext_mod, "_MAX_PROVISION_CHARS", 300)
+
+        # Add child supplements with hierarchy relation so get_consolidated includes them
+        source = session.query(Source).filter_by(key="cn-chinatax").one()
+        child = Document(
+            source_id=source.id,
+            external_id="cn-vat-ann-1",
+            title="國家稅務總局關於增值稅公告",
+            doc_type=DocType.ANNOUNCEMENT,
+        )
+        session.add(child)
+        session.flush()
+        snap = Snapshot(
+            document_id=child.id,
+            content_hash="h-ann",
+            issued_at=datetime(2025, 1, 1),
+            fetched_at=datetime(2026, 8, 12),
+        )
+        session.add(snap)
+        session.flush()
+        for i in range(1, 5):
+            session.add(
+                ProvisionNode(
+                    snapshot_id=snap.id,
+                    node_key=f"國家稅務總局關於增值稅公告#{i}",
+                    heading=f"第{i}條",
+                    text=f"補充條文內容第{i}條詳情說明文字" * 10,
+                    text_hash=f"hash-{i}",
+                )
+            )
+
+        # Link child to parent via LegalRelation
+        parent_entity = LegalEntity(
+            entity_key="增值税法",
+            entity_type=DocType.STATUTE,
+            canonical_title=vat_law.title,
+            current_document_id=vat_law.id,
+        )
+        child_entity = LegalEntity(
+            entity_key="國家稅務總局關於增值稅公告",
+            entity_type=DocType.ANNOUNCEMENT,
+            canonical_title=child.title,
+            current_document_id=child.id,
+        )
+        session.add_all([parent_entity, child_entity])
+        session.flush()
+        session.add(
+            LegalRelation(
+                from_entity_id=child_entity.id,
+                to_entity_id=parent_entity.id,
+                relation_type=RelationType.INTERPRETS,
+                extracted_by=ExtractionMethod.LLM,
+            )
+        )
+        session.commit()
+
+        prompts_received = []
+
+        def mock_generate(system_prompt, user_prompt, output_model):
+            prompts_received.append(user_prompt)
+            return _model_output([])
+
+        client = MagicMock(model="test-model")
+        client.generate_structured.side_effect = mock_generate
+
+        with patch("taxwatch.requirements.extract.get_llm_client", return_value=client):
+            ext_mod.extract_for_document(session, "cn-vat-law")
+
+        assert len(prompts_received) >= 2
+        for p in prompts_received:
+            # Every batch prompt must contain the parent statute skeleton section
+            assert "## 母法條文（供交叉參照）" in p
+            assert "增值税法#1" in p
+            assert "增值税法#2" in p
+
+    def test_extract_for_tax_accumulates_known_scenarios_across_docs(self, session, vat_law):
+        """Known scenarios are accumulated across documents in extract_for_tax."""
+        from taxwatch.requirements.extract import extract_for_tax
+
+        # Add another independent statute doc classified as cn_vat
+        source = session.query(Source).filter_by(key="cn-chinatax").one()
+        doc2 = Document(
+            source_id=source.id,
+            external_id="cn-vat-pilot-doc",
+            title="營業稅改徵增值稅試點辦法",
+            doc_type=DocType.STATUTE,
+        )
+        session.add(doc2)
+        session.flush()
+        snap = Snapshot(
+            document_id=doc2.id,
+            content_hash="h-pilot",
+            issued_at=datetime(2025, 1, 1),
+            fetched_at=datetime(2026, 8, 12),
+        )
+        session.add(snap)
+        session.flush()
+        session.add(
+            ProvisionNode(
+                snapshot_id=snap.id,
+                node_key="營業稅改徵增值稅試點辦法#1",
+                heading="第1條",
+                text="試點徵收增值稅條文內容",
+                text_hash="h-c1",
+            )
+        )
+        session.commit()
+
+        prompts_received = []
+
+        def mock_generate(system_prompt, user_prompt, output_model):
+            prompts_received.append(user_prompt)
+            # Emit a scenario from doc 1
+            return _model_output([], scenario="進口貨物徵稅情境", taxpayer_role="進口人")
+
+        client = MagicMock(model="test-model")
+        client.generate_structured.side_effect = mock_generate
+
+        with patch("taxwatch.requirements.extract.get_llm_client", return_value=client):
+            extract_for_tax(session, "cn_vat")
+
+        assert len(prompts_received) >= 2
+        # Doc 2 prompt should contain the scenario emitted by doc 1
+        assert "進口貨物徵稅情境" in prompts_received[1]
+        assert "進口人" in prompts_received[1]
+
+    def test_field_state_not_applicable_not_reviewed(self, session, vat_law):
+        """A field with state=not_applicable is not flagged for review and confidence=0."""
+        from taxwatch.requirements.extract import extract_for_document
+        from taxwatch.models import FieldState
+
+        client = MagicMock(model="test-model")
+        client.generate_structured.return_value = _model_output(
+            [
+                RequirementFieldOut(
+                    field_key="rate",
+                    value="不適用",
+                    state="not_applicable",
+                    confidence=0.0,
+                    citations=[],
+                ),
+                RequirementFieldOut(
+                    field_key="filing_deadline",
+                    value="條文未明定，待人工補充",
+                    state="not_stated",
+                    confidence=0.0,
+                    citations=[],
+                ),
+            ]
+        )
+
+        with patch("taxwatch.requirements.extract.get_llm_client", return_value=client):
+            stats = extract_for_document(session, "cn-vat-law")
+
+        req = session.query(TaxRequirement).filter_by(tax_key="cn_vat").one()
+        fields = {f.field_key: f for f in req.fields}
+
+        # rate is not_applicable -> needs_review is False
+        assert fields["rate"].state == FieldState.NOT_APPLICABLE
+        assert fields["rate"].needs_review is False
+        assert fields["rate"].value == "不適用"
+
+        # filing_deadline is not_stated -> needs_review is True
+        assert fields["filing_deadline"].state == FieldState.NOT_STATED
+        assert fields["filing_deadline"].needs_review is True
 
 
 class TestOrphanedChildDocument:

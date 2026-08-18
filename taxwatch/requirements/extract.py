@@ -23,8 +23,10 @@ from sqlalchemy.orm import Session
 
 from taxwatch.analysis.client import get_llm_client
 from taxwatch.models import (
+    DocType,
     Document,
     FieldSource,
+    FieldState,
     RequirementField,
     RequirementStatus,
     TaxRequirement,
@@ -124,20 +126,75 @@ def extract_for_tax(
     if not docs:
         raise NoSourceDocument(f"未找到屬於 {resolved_country} / {tax_key} 的法規文檔")
 
+    # Priority rank for doc_type: prefer STATUTE over REGULATION, etc.
+    type_priority = {
+        DocType.STATUTE: 1,
+        DocType.REGULATION: 2,
+        DocType.ANNOUNCEMENT: 3,
+        DocType.RULING: 4,
+        DocType.INTERPRETATION: 5,
+        DocType.NEWS: 6,
+    }
+
+    # Deduplicate documents based on their consolidated root document
+    # so we don't extract the same law family tree multiple times.
+    roots: dict[str, tuple[Document, str]] = {}  # root_external_id -> (chosen_doc, root_title)
+    skipped_duplicates: list[dict[str, str]] = []
+
+    for doc in docs:
+        try:
+            view = get_consolidated(session, doc.external_id)
+            root_ext_id = view.get("external_id") or doc.external_id
+            root_title = view.get("title") or doc.title
+        except Exception:
+            root_ext_id = doc.external_id
+            root_title = doc.title
+
+        if root_ext_id not in roots:
+            roots[root_ext_id] = (doc, root_title)
+        else:
+            existing_doc, existing_root_title = roots[root_ext_id]
+            # Choose document with higher priority (or stable sort on external_id)
+            p_existing = type_priority.get(existing_doc.doc_type, 99)
+            p_new = type_priority.get(doc.doc_type, 99)
+            if (p_new, doc.external_id) < (p_existing, existing_doc.external_id):
+                skipped_duplicates.append(
+                    {
+                        "title": existing_doc.title,
+                        "external_id": existing_doc.external_id,
+                        "root_title": existing_root_title,
+                    }
+                )
+                roots[root_ext_id] = (doc, root_title)
+            else:
+                skipped_duplicates.append(
+                    {
+                        "title": doc.title,
+                        "external_id": doc.external_id,
+                        "root_title": root_title,
+                    }
+                )
+
+    deduped_docs = [chosen_doc for chosen_doc, _ in roots.values()]
+
     # If multiple statutes/regulations exist, process root/statutes or each doc
     overall_stats: dict[str, Any] = {
         "tax_key": tax_key,
         "country": resolved_country,
         "tax_name": tax_type.name_zh,
-        "documents_processed": len(docs),
-        "source_documents": [d.title for d in docs],
+        "documents_processed": len(deduped_docs),
+        "source_documents": [d.title for d in deduped_docs],
+        "skipped_duplicates": skipped_duplicates,
         "requirements": 0,
         "dropped_citations": 0,
         "uncited_fields": 0,
         "results": [],
     }
 
-    for doc in docs:
+    # Cross-document known scenarios accumulator (Item 2)
+    known_scenarios: set[tuple[str, str]] = set()
+
+    for doc in deduped_docs:
         try:
             stat = extract_for_document(
                 session,
@@ -146,6 +203,7 @@ def extract_for_tax(
                 tax_key=tax_key,
                 dry_run=dry_run,
                 allow_child=allow_child,
+                known_scenarios=known_scenarios,
             )
             overall_stats["results"].append(stat)
             overall_stats["requirements"] += stat.get("requirements", 0)
@@ -156,6 +214,12 @@ def extract_for_tax(
                 raise
         except NoSourceDocument:
             continue
+
+    if not dry_run:
+        suspected = detect_suspected_duplicates(session, resolved_country, tax_key)
+        overall_stats["suspected_duplicates"] = suspected
+    else:
+        overall_stats["suspected_duplicates"] = []
 
     return overall_stats
 
@@ -168,6 +232,7 @@ def extract_for_document(
     tax_key: str | None = None,
     dry_run: bool = False,
     allow_child: bool = False,
+    known_scenarios: set[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Extract 申報規範 for one statute and everything implementing it.
 
@@ -197,8 +262,11 @@ def extract_for_document(
     resolved_tax_key = tax_key or _infer_tax_key(view["title"], country=resolved_country)
     tax_name = _tax_name(resolved_tax_key)
 
-    batches = _render_batches(view)
-    all_allowed_nodes: set[str] = set().union(*(b[1] for b in batches)) if batches else set()
+    skeleton_text, skeleton_nodes, batches = _render_batches(view)
+    all_allowed_nodes: set[str] = set(skeleton_nodes)
+    for _, b_nodes in batches:
+        all_allowed_nodes.update(b_nodes)
+
     if not all_allowed_nodes:
         raise NoSourceDocument(f"{external_id} has no parsed provisions to extract from")
 
@@ -209,19 +277,60 @@ def extract_for_document(
     all_unresolved: list[str] = []
     failed_batches: list[dict[str, Any]] = []
 
+    if known_scenarios is None:
+        known_scenarios = set()
+
     from taxwatch.config import get_settings
 
     inter_batch_delay = get_settings().llm_inter_batch_delay
 
-    for batch_idx, (provisions_block, batch_allowed) in enumerate(batches, start=1):
+    # Parent provisions section (skeleton)
+    if skeleton_text.strip():
+        parent_provisions_section = (
+            f"\n## 母法條文（供交叉參照）\n\n"
+            f"以下為母法條文，供交叉參照：\n"
+            f"{skeleton_text}\n"
+        )
+    else:
+        parent_provisions_section = ""
+
+    for batch_idx, (supplements_block, batch_allowed) in enumerate(batches, start=1):
         # Concurrent requests are what trips the gateway into 400s; space them.
         if batch_idx > 1 and inter_batch_delay > 0:
             time.sleep(inter_batch_delay)
 
+        # Build sorted known scenarios list (Item 2)
+        if known_scenarios:
+            sorted_scenarios = sorted(
+                [(sc, role) for sc, role in known_scenarios if sc],
+                key=lambda x: (x[1], x[0]),
+            )
+            # Limit to recent/top 50 if list grows very large
+            if len(sorted_scenarios) > 50:
+                truncated_note = "（清單已截斷，僅列出前 50 筆）\n"
+                sorted_scenarios = sorted_scenarios[:50]
+            else:
+                truncated_note = ""
+
+            scenarios_list = "\n".join(
+                f"- 情境：{sc} | 納稅人身分：{role}" for sc, role in sorted_scenarios
+            )
+            existing_section = (
+                f"\n## 前面批次已識別之情境清單\n\n"
+                f"以下是已整理出的情境與身分{truncated_note}。若本批條文所屬情境已包含在下列清單中，"
+                f"**必須逐字沿用該情境的 scenario 與 taxpayer_role 措辭**，不要另創新說法；"
+                f"只有確定為全新情境時才新增：\n\n"
+                f"{scenarios_list}\n"
+            )
+        else:
+            existing_section = ""
+
         prompt = EXTRACTION_TEMPLATE.format(
             tax_name=tax_name,
+            existing_scenarios_section=existing_section,
             field_definitions=field_defs,
-            provisions=provisions_block,
+            parent_provisions_section=parent_provisions_section,
+            provisions=supplements_block if supplements_block.strip() else "（無額外補充規定）",
         )
 
         try:
@@ -248,6 +357,11 @@ def extract_for_document(
 
         all_requirements.extend(result.requirements)
         all_unresolved.extend(result.unresolved)
+        for r in result.requirements:
+            sc_str = (r.scenario or "").strip()
+            ro_str = (r.taxpayer_role or "").strip()
+            if sc_str:
+                known_scenarios.add((sc_str, ro_str))
 
     child_titles = [c["title"] for c in view.get("child_documents", [])]
     stats: dict[str, Any] = {
@@ -256,6 +370,7 @@ def extract_for_document(
         "child_documents": child_titles,
         "missing_parent": missing_parent,
         "batches": len(batches),
+        "skeleton_chars": len(skeleton_text),
         "failed_batches": failed_batches,
         "provisions_supplied": len(all_allowed_nodes),
         "requirements": len(all_requirements),
@@ -311,48 +426,116 @@ def extract_for_document(
 # ---------- internals ----------
 
 
-def _render_batches(view: dict[str, Any]) -> list[tuple[str, set[str]]]:
-    """Split consolidated view provisions into batches that fit within _MAX_PROVISION_CHARS.
+def _render_batches(
+    view: dict[str, Any],
+) -> tuple[str, set[str], list[tuple[str, set[str]]]]:
+    """Lay out provisions for prompt extraction with parent statute skeleton + batched supplements.
 
-    Splits occur on article/supplement boundaries.
+    Returns:
+        (skeleton_text, skeleton_nodes, batches)
+        where batches is a list of (supplements_text, batch_supplement_nodes).
     """
-    # 1. Build a list of self-contained provision blocks: (block_text, node_keys_in_block)
-    blocks: list[tuple[str, set[str]]] = []
+    # 1. Build skeleton: parent statute articles
+    skeleton_lines: list[str] = []
+    skeleton_nodes: set[str] = set()
 
-    for article in view["articles"]:
-        art_lines = [f"\n### [{article['node_key']}] {article['heading']}\n{article['text']}"]
-        art_nodes = {article["node_key"]}
+    # Separate child/supplement provisions
+    supplement_blocks: list[tuple[str, set[str]]] = []
+
+    for article in view.get("articles", []):
+        skeleton_lines.append(f"\n### [{article['node_key']}] {article['heading']}\n{article['text']}")
+        skeleton_nodes.add(article["node_key"])
 
         for supplement in article.get("supplements", []):
-            art_lines.append(
+            supp_text = (
                 f"\n  補充規定 [{supplement['node_key']}] "
                 f"《{supplement['document_title']}》{supplement['heading']}\n"
                 f"  {supplement['text']}"
             )
-            art_nodes.add(supplement["node_key"])
-
-        blocks.append(("\n".join(art_lines), art_nodes))
+            supplement_blocks.append((supp_text, {supplement["node_key"]}))
 
     for supplement in view.get("unanchored_supplements", []):
-        block = (
+        supp_text = (
             f"\n### [{supplement['node_key']}] "
             f"《{supplement['document_title']}》{supplement['heading']}\n{supplement['text']}"
         )
-        blocks.append((block, {supplement["node_key"]}))
+        supplement_blocks.append((supp_text, {supplement["node_key"]}))
 
-    if not blocks:
-        return []
+    skeleton_text = "\n".join(skeleton_lines)
+    skeleton_len = len(skeleton_text)
 
     budget = _batch_chars()
+
+    # If skeleton alone exceeds budget, log warning and fall back to pure chunking
+    if skeleton_len >= budget and budget > 0:
+        logger.warning(
+            "Parent skeleton chars (%d) exceeds batch budget (%d); falling back to all-provision chunking",
+            skeleton_len,
+            budget,
+        )
+        all_blocks: list[tuple[str, set[str]]] = []
+        for article in view.get("articles", []):
+            art_lines = [f"\n### [{article['node_key']}] {article['heading']}\n{article['text']}"]
+            art_nodes = {article["node_key"]}
+            for s in article.get("supplements", []):
+                art_lines.append(
+                    f"\n  補充規定 [{s['node_key']}] "
+                    f"《{s['document_title']}》{s['heading']}\n"
+                    f"  {s['text']}"
+                )
+                art_nodes.add(s["node_key"])
+            all_blocks.append(("\n".join(art_lines), art_nodes))
+        for s in view.get("unanchored_supplements", []):
+            all_blocks.append(
+                (f"\n### [{s['node_key']}] 《{s['document_title']}》{s['heading']}\n{s['text']}", {s["node_key"]})
+            )
+
+        fallback_batches: list[tuple[str, set[str]]] = []
+        c_lines: list[str] = []
+        c_nodes: set[str] = set()
+        c_chars = 0
+        for b_text, b_nodes in all_blocks:
+            if c_chars + len(b_text) > budget and c_lines:
+                fallback_batches.append(("\n".join(c_lines), c_nodes))
+                c_lines = []
+                c_nodes = set()
+                c_chars = 0
+            c_lines.append(b_text)
+            c_nodes.update(b_nodes)
+            c_chars += len(b_text)
+        if c_lines:
+            fallback_batches.append(("\n".join(c_lines), c_nodes))
+        return "", set(), fallback_batches
+
+    # If there are no supplements, return 1 batch with empty supplements
+    if not supplement_blocks:
+        return skeleton_text, skeleton_nodes, [("", set())]
+
+    # Available budget per batch for supplements = budget - skeleton_len
+    # The skeleton is a fixed per-batch cost, not something to subtract from the
+    # batch budget. Deducting it is self-amplifying: a bigger skeleton leaves
+    # less room for supplements, which makes more batches, which sends the
+    # skeleton more times. Skeleton size and batch count would multiply rather
+    # than add. So the budget governs supplements only, and the hard cap governs
+    # the total.
+    supp_budget = budget
+    if skeleton_len + supp_budget > _MAX_PROVISION_CHARS:
+        supp_budget = max(500, _MAX_PROVISION_CHARS - skeleton_len)
+        logger.warning(
+            "Skeleton (%d chars) leaves only %d for supplements under the %d cap",
+            skeleton_len,
+            supp_budget,
+            _MAX_PROVISION_CHARS,
+        )
+
     batches: list[tuple[str, set[str]]] = []
     current_lines: list[str] = []
     current_nodes: set[str] = set()
     current_chars = 0
 
-    for block_text, block_nodes in blocks:
+    for block_text, block_nodes in supplement_blocks:
         block_len = len(block_text)
-        # If adding this block exceeds budget (and current batch is not empty), finish current batch
-        if current_chars + block_len > budget and current_lines:
+        if current_chars + block_len > supp_budget and current_lines:
             batches.append(("\n".join(current_lines), current_nodes))
             current_lines = []
             current_nodes = set()
@@ -365,15 +548,17 @@ def _render_batches(view: dict[str, Any]) -> list[tuple[str, set[str]]]:
     if current_lines:
         batches.append(("\n".join(current_lines), current_nodes))
 
-    return batches
+    return skeleton_text, skeleton_nodes, batches
 
 
 def _render_provisions(view: dict[str, Any]) -> tuple[str, set[str], int]:
     """Lay out the consolidated view for the prompt, collecting valid node keys."""
-    batches = _render_batches(view)
+    skeleton_text, skeleton_nodes, batches = _render_batches(view)
     if not batches:
-        return "", set(), 0
-    return batches[0][0], batches[0][1], 0
+        return skeleton_text, skeleton_nodes, 0
+    full_block = f"{skeleton_text}\n\n{batches[0][0]}" if skeleton_text else batches[0][0]
+    all_nodes = set(skeleton_nodes) | batches[0][1]
+    return full_block, all_nodes, 0
 
 
 def _upsert_requirement(
@@ -447,12 +632,34 @@ def _upsert_requirement(
 
         citations, removed = _verify_citations(field_out.citations, allowed_nodes)
         dropped += removed
-        confidence = field_out.confidence if citations else 0.0
-        if not citations:
+
+        # Parse field state (Item 3)
+        raw_state = getattr(field_out, "state", "derived") or "derived"
+        raw_state_str = str(raw_state).lower().strip()
+        if raw_state_str in ("not_applicable", "n/a"):
+            field_state = FieldState.NOT_APPLICABLE
+        elif raw_state_str in ("not_stated", "unknown"):
+            field_state = FieldState.NOT_STATED
+        else:
+            field_state = FieldState.DERIVED
+
+        confidence = field_out.confidence if (citations and field_state == FieldState.DERIVED) else 0.0
+
+        # Review flag logic: not_applicable does NOT need review.
+        # not_stated or derived without citations needs review.
+        if field_state == FieldState.NOT_APPLICABLE:
+            needs_review = False
+            review_reason = ""
+        elif field_state == FieldState.NOT_STATED or not citations:
+            needs_review = True
+            review_reason = "條文未明定，需人工確認" if field_state == FieldState.NOT_STATED else "無條文依據，需人工確認"
             uncited += 1
+        else:
+            needs_review = False
+            review_reason = ""
 
         # Across multiple batches: do not overwrite a previously cited, verified cell with an uncited one
-        if current is not None and current.citations and not citations:
+        if current is not None and current.citations and not citations and field_state != FieldState.DERIVED:
             continue
 
         if current is None:
@@ -464,12 +671,12 @@ def _upsert_requirement(
             existing[field_out.field_key] = current
 
         current.value = field_out.value.strip()
+        current.state = field_state
         current.citations = citations
         current.confidence = confidence
         current.source = FieldSource.LLM
-        # An uncited cell is the model's own words; make a reviewer look at it.
-        current.needs_review = not citations
-        current.review_reason = "無條文依據，需人工確認" if not citations else ""
+        current.needs_review = needs_review
+        current.review_reason = review_reason
         current.stale_change_id = None
 
     session.flush()
@@ -493,6 +700,81 @@ def _verify_citations(citations: list[Any], allowed_nodes: set[str]) -> tuple[li
             }
         )
     return kept, dropped
+
+
+def normalize_rate_for_comparison(rate: str) -> str:
+    """Normalize a rate/levy string for deduplication reporting without losing meaning.
+
+    Handles whitespace, full-width characters, and Chinese percentage forms
+    like 百分之三 -> 3%.
+    """
+    import re
+    from taxwatch.cn_numerals import to_arabic
+
+    text = rate.strip()
+    # Normalize full-width ascii & punctuation
+    text = text.replace("％", "%").replace("（", "(").replace("）", ")").replace("：", ":")
+    text = re.sub(r"\s+", "", text)
+
+    # Convert 百分之X -> X%
+    def _repl_pct(m: re.Match) -> str:
+        num_str = m.group(1)
+        arabic = to_arabic(num_str)
+        return f"{arabic}%"
+
+    text = re.sub(r"百分之([零〇一二两兩三四五六七八九十百]+(?:\.[0-9]+)?)", _repl_pct, text)
+    return text
+
+
+def detect_suspected_duplicates(
+    session: Session,
+    country: str,
+    tax_key: str,
+) -> list[dict[str, Any]]:
+    """Detect suspected duplicate requirement rows based on identical taxpayer_role and normalized rate.
+
+    Reporting only — excludes not_applicable and not_stated cells so false positives
+    do not form massive duplicate groups.
+    """
+    reqs = (
+        session.query(TaxRequirement)
+        .filter_by(country=country, tax_key=tax_key)
+        .order_by(TaxRequirement.id.asc())
+        .all()
+    )
+
+    # Group by (taxpayer_role, normalized_rate)
+    grouped: dict[tuple[str, str], list[TaxRequirement]] = {}
+    for r in reqs:
+        fields = {f.field_key: f for f in r.fields}
+        rate_field = fields.get("rate")
+        if not rate_field:
+            continue
+        # Exclude not_applicable and not_stated cells from duplicate detection (Item 3)
+        if rate_field.state in (FieldState.NOT_APPLICABLE, FieldState.NOT_STATED):
+            continue
+        rate_val = rate_field.value.strip()
+        if not rate_val or "不適用" in rate_val or "條文未明定" in rate_val:
+            continue
+
+        norm_rate = normalize_rate_for_comparison(rate_val)
+        role = r.taxpayer_role.strip()
+        grouped.setdefault((role, norm_rate), []).append(r)
+
+    suspected: list[dict[str, Any]] = []
+    for (role, norm_rate), group in grouped.items():
+        if len(group) > 1:
+            suspected.append(
+                {
+                    "taxpayer_role": role,
+                    "normalized_rate": norm_rate,
+                    "count": len(group),
+                    "scenarios": [r.scenario for r in group],
+                    "requirement_ids": [r.id for r in group],
+                }
+            )
+
+    return suspected
 
 
 def _infer_tax_key(title: str, country: str = "CN") -> str:
