@@ -222,6 +222,18 @@ _PRIMARY_LAW_SOURCE = {
 }
 
 
+def _echo_failed_batches(stats: dict) -> None:
+    """A partial matrix must announce its own gaps, or it reads as complete."""
+    failed = stats.get("failed_batches") or []
+    if not failed:
+        return
+    total = stats.get("batches") or len(failed)
+    typer.echo(f"\n⚠ {len(failed)}/{total} 個批次失敗，以下條文未納入分析：")
+    for f in failed:
+        typer.echo(f"  · 批次 #{f['batch']}：{f['error']}")
+    typer.echo("  結果不完整。重跑本指令即可補齊，已產出的規範不會遺失。")
+
+
 def _primary_source(country: str) -> str:
     return _PRIMARY_LAW_SOURCE.get(country.upper(), "--all")
 
@@ -284,6 +296,8 @@ def extract_requirements(
             for doc_title in stats.get("source_documents", []):
                 typer.echo(f"  ├ 法規：{doc_title}")
             typer.echo(f"抽出 {stats['requirements']} 個課稅情境")
+            for r in stats.get("results", []):
+                _echo_failed_batches(r)
             if stats["dropped_citations"]:
                 typer.echo(f"⚠ 捨棄 {stats['dropped_citations']} 筆指向不存在條文的引用")
             if stats["uncited_fields"]:
@@ -363,6 +377,7 @@ def extract_requirements(
     for child in stats.get("child_documents", []):
         typer.echo(f"  ├ 子法：{child}")
     typer.echo(f"抽出 {stats['requirements']} 個課稅情境")
+    _echo_failed_batches(stats)
     if stats["requirements"] == 0:
         typer.echo("\n⚠ 0 個情境 — 成因分解：")
         typer.echo(f"  母法條文：{stats['provisions_supplied']} 條送入 LLM")

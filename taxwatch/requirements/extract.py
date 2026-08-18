@@ -16,6 +16,7 @@ be able to invent which provisions exist.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -43,7 +44,28 @@ logger = logging.getLogger(__name__)
 
 # Guard against handing the model a whole tax code; the statutes we care about
 # run to a few hundred articles, and beyond that the useful signal is already in.
+#
+# This was the single-shot ceiling before extraction was batched. Kept as the
+# absolute cap, but the *batch* size is a separate, smaller setting: a 60k-char
+# request was measured at 6m41s against the production gateway, which is long
+# enough that any transient wobble kills it. Smaller batches finish sooner and
+# lean on the gateway less.
 _MAX_PROVISION_CHARS = 60_000
+
+
+def _batch_chars() -> int:
+    from taxwatch.config import get_settings
+
+    # The hard cap wins: it is the ceiling, and tests lower it to force batching.
+    return max(1, min(get_settings().requirements_batch_chars, _MAX_PROVISION_CHARS))
+
+
+class LLMBatchFailure(RuntimeError):
+    """Raised when every batch of an extraction failed.
+
+    A partial result is worth keeping; nothing at all is not, and returning
+    empty stats would look like "this statute has no requirements".
+    """
 
 
 class NoSourceDocument(LookupError):
@@ -185,19 +207,45 @@ def extract_for_document(
 
     all_requirements: list[Any] = []
     all_unresolved: list[str] = []
+    failed_batches: list[dict[str, Any]] = []
+
+    from taxwatch.config import get_settings
+
+    inter_batch_delay = get_settings().llm_inter_batch_delay
 
     for batch_idx, (provisions_block, batch_allowed) in enumerate(batches, start=1):
+        # Concurrent requests are what trips the gateway into 400s; space them.
+        if batch_idx > 1 and inter_batch_delay > 0:
+            time.sleep(inter_batch_delay)
+
         prompt = EXTRACTION_TEMPLATE.format(
             tax_name=tax_name,
             field_definitions=field_defs,
             provisions=provisions_block,
         )
 
-        result = client.generate_structured(
-            system_prompt=SYSTEM_PROMPT,
-            user_prompt=prompt,
-            output_model=RequirementSetOut,
-        )
+        try:
+            result = client.generate_structured(
+                system_prompt=SYSTEM_PROMPT,
+                user_prompt=prompt,
+                output_model=RequirementSetOut,
+            )
+        except Exception as exc:  # noqa: BLE001 — one bad batch must not void the rest
+            # Losing batch 9 used to discard batches 1-8 as well, because
+            # nothing was written until every batch had returned. A partial
+            # matrix that names its own gaps beats an empty one.
+            logger.warning(
+                "Batch %d/%d failed (%s): %s",
+                batch_idx,
+                len(batches),
+                type(exc).__name__,
+                str(exc)[:200],
+            )
+            failed_batches.append(
+                {"batch": batch_idx, "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
+            )
+            continue
+
         all_requirements.extend(result.requirements)
         all_unresolved.extend(result.unresolved)
 
@@ -208,6 +256,7 @@ def extract_for_document(
         "child_documents": child_titles,
         "missing_parent": missing_parent,
         "batches": len(batches),
+        "failed_batches": failed_batches,
         "provisions_supplied": len(all_allowed_nodes),
         "requirements": len(all_requirements),
         "unresolved": all_unresolved,
@@ -215,6 +264,12 @@ def extract_for_document(
         "dropped_citations": 0,
         "uncited_fields": 0,
     }
+
+    if failed_batches and not all_requirements:
+        details = "; ".join(f"#{f['batch']} {f['error']}" for f in failed_batches)
+        raise LLMBatchFailure(
+            f"all {len(batches)} batch(es) failed for {view['title']}: {details}"
+        )
 
     if dry_run:
         stats["preview"] = [
@@ -236,6 +291,13 @@ def extract_for_document(
         stats["uncited_fields"] += uncited
 
     session.commit()
+    if failed_batches:
+        logger.warning(
+            "%d of %d batches failed for %s; the matrix is incomplete",
+            len(failed_batches),
+            len(batches),
+            view["title"],
+        )
     logger.info(
         "Extracted %d requirement rows across %d batches for %s (%d citations dropped as unverifiable)",
         stats["requirements"],
@@ -281,6 +343,7 @@ def _render_batches(view: dict[str, Any]) -> list[tuple[str, set[str]]]:
     if not blocks:
         return []
 
+    budget = _batch_chars()
     batches: list[tuple[str, set[str]]] = []
     current_lines: list[str] = []
     current_nodes: set[str] = set()
@@ -289,7 +352,7 @@ def _render_batches(view: dict[str, Any]) -> list[tuple[str, set[str]]]:
     for block_text, block_nodes in blocks:
         block_len = len(block_text)
         # If adding this block exceeds budget (and current batch is not empty), finish current batch
-        if current_chars + block_len > _MAX_PROVISION_CHARS and current_lines:
+        if current_chars + block_len > budget and current_lines:
             batches.append(("\n".join(current_lines), current_nodes))
             current_lines = []
             current_nodes = set()
