@@ -26,15 +26,19 @@ class ProvisionCitation(BaseModel):
 class RequirementFieldOut(BaseModel):
     field_key: str = Field(description="欄位鍵，必須是指定清單中的其中之一")
     value: str = Field(description="欄位內容（繁體中文）")
+    state: str = Field(
+        default="derived",
+        description="欄位狀態：'derived'（有條文依據）、'not_stated'（條文未明定）、'not_applicable'（本情境不適用此欄位）。預設 'derived'。",
+    )
     citations: list[ProvisionCitation] = Field(
         default_factory=list,
-        description="此欄位所依據的條文。無法從條文推得時留空並將 confidence 設為 0。",
+        description="此欄位所依據的條文。無法從條文推得或不適用時留空並將 confidence 設為 0。",
     )
     confidence: float = Field(
         default=0.0,
         ge=0.0,
         le=1.0,
-        description="0-1。條文明文寫出者接近 1；需要推論者降低；無條文依據為 0。",
+        description="0-1。條文明文寫出者接近 1；需要推論者降低；無條文依據或不適用為 0。",
     )
 
 

@@ -37,7 +37,7 @@ def _view(n_articles: int) -> dict:
 def test_batches_split_on_settings_not_hard_cap(monkeypatch):
     """Batch size comes from settings, well under the 60k hard cap."""
     monkeypatch.setattr(ext, "_batch_chars", lambda: 100)
-    batches = ext._render_batches(_view(6))
+    skeleton_text, skeleton_nodes, batches = ext._render_batches(_view(6))
     assert len(batches) > 1
     assert all(len(text) <= 200 for text, _ in batches)
 
