@@ -116,6 +116,8 @@ def import_workbook(
             "skipped": 0,
             "columns_mapped": [],
             "unmapped_headers": [],
+            "citations_resolved": 0,
+            "citations_unresolved": 0,
         }
 
     header, *body = rows
@@ -129,14 +131,20 @@ def import_workbook(
 
     imported = 0
     skipped = 0
+    citations_resolved = 0
+    citations_unresolved = 0
 
     for raw in body:
         record = _row_to_record(raw, mapping)
         if not record.get("_scenario"):
             skipped += 1
             continue
-        _upsert(session, record, country=country, source_note=source_note)
+        req, resolved_count, unresolved_count = _upsert(
+            session, record, country=country, source_note=source_note
+        )
         imported += 1
+        citations_resolved += resolved_count
+        citations_unresolved += unresolved_count
 
     session.commit()
     logger.info("Imported %d requirement rows from %s", imported, path)
@@ -146,6 +154,8 @@ def import_workbook(
         "skipped": skipped,
         "columns_mapped": sorted({v for v in mapping.values() if not v.startswith("_")}),
         "unmapped_headers": unmapped_headers,
+        "citations_resolved": citations_resolved,
+        "citations_unresolved": citations_unresolved,
     }
 
 
@@ -261,7 +271,7 @@ def _upsert(
     *,
     country: str,
     source_note: str = "",
-) -> TaxRequirement:
+) -> tuple[TaxRequirement, int, int]:
     tax_key = _tax_key(record.get("_tax", ""), country=country)
     scenario = record["_scenario"]
     role = record.get("_role", "")
@@ -291,6 +301,58 @@ def _upsert(
 
     session.flush()
 
+    # Extract citations from Policy Basis if present
+    from taxwatch.graph.citation import extract_citations
+    from taxwatch.graph.resolver import normalize_entity_key
+    from taxwatch.models import ProvisionNode
+
+    policy_basis = record.get("_policy_basis", "").strip()
+    citations_data: list[dict[str, Any]] = []
+    resolved_count = 0
+    unresolved_count = 0
+
+    if policy_basis:
+        extracted = extract_citations(policy_basis)
+        if extracted:
+            # Dedup extracted entity_keys
+            unique_cits: list[Any] = []
+            seen_keys: set[str] = set()
+            for cit in extracted:
+                if cit.entity_key not in seen_keys:
+                    seen_keys.add(cit.entity_key)
+                    unique_cits.append(cit)
+
+            for cit in unique_cits:
+                norm_key = normalize_entity_key(cit.entity_key)
+                # Check if this node_key exists in the database
+                existing_node = (
+                    session.query(ProvisionNode)
+                    .filter(ProvisionNode.node_key == cit.entity_key)
+                    .first()
+                )
+                if not existing_node:
+                    # Try matching by normalized key across provision nodes
+                    candidates = session.query(ProvisionNode).all()
+                    existing_node = next(
+                        (n for n in candidates if normalize_entity_key(n.node_key) == norm_key),
+                        None,
+                    )
+
+                if existing_node:
+                    citations_data.append(
+                        {
+                            "node_key": existing_node.node_key,
+                            "title": existing_node.node_key.split("#", 1)[0],
+                            "quote": cit.raw_text or policy_basis[:100],
+                        }
+                    )
+                    resolved_count += 1
+                else:
+                    unresolved_count += 1
+        else:
+            # Policy basis text exists but extract_citations found 0 citations
+            unresolved_count += 1
+
     existing = {f.field_key: f for f in requirement.fields}
     for field_key in FIELD_KEYS:
         value = record.get(field_key, "").strip()
@@ -304,15 +366,17 @@ def _upsert(
 
         field.value = value
         field.source = FieldSource.IMPORT
-        field.citations = []
+        field.citations = citations_data
         field.confidence = 0.0
-        # Imported prose has no provision behind it yet, so the system cannot
-        # tell when it goes out of date. Say so rather than imply it is tracked.
         field.needs_review = True
-        field.review_reason = "由試算表匯入，尚未對應條文，法規異動時無法自動追蹤"
+
+        if citations_data:
+            field.review_reason = "由試算表匯入，已對應條文但內容未經人工確認"
+        else:
+            field.review_reason = "由試算表匯入，尚未對應條文，法規異動時無法自動追蹤"
 
     session.flush()
-    return requirement
+    return requirement, resolved_count, unresolved_count
 
 
 def _tax_key(label: str, country: str = "CN") -> str:
