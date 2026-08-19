@@ -134,6 +134,11 @@ def extract_for_tax(
         "requirements": 0,
         "dropped_citations": 0,
         "uncited_fields": 0,
+        # Carried up from each document so --dry-run can show what a run would
+        # produce. Without it the tax-level path reports a count and nothing
+        # else, which is the one thing a dry run exists to avoid.
+        "preview": [],
+        "unresolved": [],
         "results": [],
     }
 
@@ -151,6 +156,8 @@ def extract_for_tax(
             overall_stats["requirements"] += stat.get("requirements", 0)
             overall_stats["dropped_citations"] += stat.get("dropped_citations", 0)
             overall_stats["uncited_fields"] += stat.get("uncited_fields", 0)
+            overall_stats["preview"].extend(stat.get("preview", []))
+            overall_stats["unresolved"].extend(stat.get("unresolved", []))
         except MissingParentLaw:
             if not allow_child:
                 raise
