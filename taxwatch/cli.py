@@ -433,6 +433,12 @@ def import_requirements(
     typer.echo(f"對應到的欄位：{', '.join(stats['columns_mapped'])}")
     if stats.get("unmapped_headers"):
         typer.echo(f"⚠ 未對應的表頭（已略過）：{', '.join(stats['unmapped_headers'])}")
+    if stats.get("missing_identity_columns"):
+        typer.echo(
+            f"⚠⚠ 缺少身分欄位：{', '.join(stats['missing_identity_columns'])}。"
+            "\n   稅種將全部歸入「其他」，且納稅人身分為空——不同情境會共用同一身分，"
+            "\n   後續重新匯入可能互相覆蓋。請確認表頭後重新匯入。"
+        )
     if stats.get("citations_resolved", 0) or stats.get("citations_unresolved", 0):
         typer.echo(
             f"條文引用解析：成功對應 {stats['citations_resolved']} 筆條文引用，"

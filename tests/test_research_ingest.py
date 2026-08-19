@@ -372,3 +372,72 @@ def test_node_index_is_built_once_per_import(session, monkeypatch, tmp_path):
 
     assert stats["imported"] == 10
     assert calls["n"] == 1, "index rebuilt per row"
+
+
+# --- Chinese header wording actually produced by the research tool ----------
+
+RESEARCH_ZH_HEADER = [
+    "稅目",
+    "子項目 / 課稅情境",
+    "納稅義務人 / 扣繳義務人",
+    "申報/遵循要件",
+    "課稅時點 / 發生時點",
+    "法定稅率",
+    "課稅項目類別與說明",
+    "應納稅額計算公式",
+    "稅基",
+    "扣除 / 抵減 / 免稅",
+    "租稅優惠 / 減免",
+    "申報期限",
+    "繳納期限 / 徵收期間",
+    "徵收管理",
+    "法規依據與備註",
+    "變更/修正內容",
+]
+
+
+def test_research_chinese_headers_all_map():
+    """The wording differs from the finance spreadsheet the hints were built on.
+
+    Eight of these sixteen were dropped on the first real import — including
+    稅目 and 納稅義務人, which are part of a row's identity.
+    """
+    from taxwatch.requirements.importer import _map_columns
+
+    mapping = _map_columns(RESEARCH_ZH_HEADER)
+    assert len(mapping) == len(RESEARCH_ZH_HEADER), [
+        h for i, h in enumerate(RESEARCH_ZH_HEADER) if i not in mapping
+    ]
+    assert mapping[0] == "_tax"
+    assert mapping[2] == "_role"
+    assert mapping[14] == "_policy_basis"
+
+
+def test_identity_columns_are_reported_when_missing(session, tmp_path):
+    """Losing 稅目/納稅義務人 collapses rows onto one identity — say so loudly."""
+    from taxwatch.requirements.importer import import_workbook
+
+    sheet = tmp_path / "m.md"
+    sheet.write_text(
+        "| 課稅情境 | 法定稅率 |\n| --- | --- |\n| 技術服務費 | 20% |\n",
+        encoding="utf-8",
+    )
+    stats = import_workbook(session, sheet, country="TW")
+
+    assert "稅種／稅目" in stats["missing_identity_columns"]
+    assert "納稅義務人／角色" in stats["missing_identity_columns"]
+
+
+def test_identity_columns_absent_from_report_when_present(session, tmp_path):
+    from taxwatch.requirements.importer import import_workbook
+
+    sheet = tmp_path / "m.md"
+    sheet.write_text(
+        "| 稅目 | 課稅情境 | 納稅義務人 | 法定稅率 |\n"
+        "| --- | --- | --- | --- |\n"
+        "| 營利事業所得稅 | 本地營利事業 | 納稅義務人 | 20% |\n",
+        encoding="utf-8",
+    )
+    stats = import_workbook(session, sheet, country="TW")
+
+    assert stats["missing_identity_columns"] == []
