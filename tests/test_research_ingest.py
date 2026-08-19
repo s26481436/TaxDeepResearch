@@ -303,3 +303,39 @@ def test_policy_basis_english_citations(tmp_path, session):
     assert rate_field.needs_review is True
     assert rate_field.confidence == 0.0
     assert rate_field.review_reason == "由試算表匯入，尚未對應條文，法規異動時無法自動追蹤"
+
+
+def test_cli_import_requirements(tmp_path, session, monkeypatch):
+    """Verify CLI import-requirements options and output."""
+    from typer.testing import CliRunner
+
+    from taxwatch.cli import app
+
+    runner = CliRunner()
+    md_content = """
+| Tax Type | Sub-item | Taxpayer | Statutory Rate | Unknown Column |
+| :--- | :--- | :--- | :--- | :--- |
+| 增值稅 | 諮詢服務 | 一般納稅人 | 6% | 測試備註 |
+"""
+    md_file = tmp_path / "cli_req.md"
+    md_file.write_text(md_content, encoding="utf-8")
+
+    monkeypatch.setattr("taxwatch.db.get_session", lambda: session)
+    monkeypatch.setattr("taxwatch.db.init_db", lambda: None)
+    monkeypatch.setattr(session, "close", lambda: None)
+
+    result = runner.invoke(
+        app,
+        [
+            "import-requirements",
+            str(md_file),
+            "--country",
+            "CN",
+            "--source-note",
+            "gpt-researcher 2026-08-19",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "匯入 1 列" in result.output
+    assert "Unknown Column" in result.output
+    assert "未對應的表頭" in result.output

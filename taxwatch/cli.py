@@ -400,11 +400,12 @@ def extract_requirements(
 
 @app.command()
 def import_requirements(
-    path: str = typer.Argument(..., help="申報規範試算表（.xlsx）"),
+    path: str = typer.Argument(..., help="申報規範檔案（.xlsx、.md、.csv）"),
     country: str = typer.Option("CN", help="轄區代碼"),
-    sheet: str = typer.Option("", help="工作表名稱，留空取第一張"),
+    sheet: str = typer.Option("", help="工作表名稱（僅 .xlsx），留空取第一張"),
+    source_note: str = typer.Option("", help="來源說明（如 gpt-researcher 2026-08-19）"),
 ):
-    """匯入財務彙整的申報規範試算表。"""
+    """匯入財務或研究彙整的申報規範表（.xlsx / .md / .csv）。"""
     from taxwatch.db import get_session
     from taxwatch.db import init_db as _init_db
     from taxwatch.requirements.importer import MissingDependency, import_workbook
@@ -417,6 +418,7 @@ def import_requirements(
             path,
             country=country,
             sheet=sheet or 0,
+            source_note=source_note,
         )
     except MissingDependency as exc:
         typer.echo(str(exc))
@@ -429,7 +431,14 @@ def import_requirements(
 
     typer.echo(f"匯入 {stats['imported']} 列（略過 {stats['skipped']} 列）")
     typer.echo(f"對應到的欄位：{', '.join(stats['columns_mapped'])}")
-    typer.echo("匯入內容尚未對應條文，已全數標記待覆核。")
+    if stats.get("unmapped_headers"):
+        typer.echo(f"⚠ 未對應的表頭（已略過）：{', '.join(stats['unmapped_headers'])}")
+    if stats.get("citations_resolved", 0) or stats.get("citations_unresolved", 0):
+        typer.echo(
+            f"條文引用解析：成功對應 {stats['citations_resolved']} 筆條文引用，"
+            f"無法對應 {stats['citations_unresolved']} 筆"
+        )
+    typer.echo("匯入內容尚未經人工確認，已全數標記待覆核。")
 
 
 @app.command()
