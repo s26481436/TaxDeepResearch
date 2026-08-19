@@ -42,6 +42,8 @@ _HEADER_HINTS: tuple[tuple[str, str], ...] = (
     ("tax type", "_tax"),
     ("稅種", "_tax"),
     ("税种", "_tax"),
+    ("稅目", "_tax"),
+    ("税目", "_tax"),
     ("tax scenario", "_scenario"),
     ("sub-item", "_scenario"),
     ("subitem", "_scenario"),
@@ -51,13 +53,24 @@ _HEADER_HINTS: tuple[tuple[str, str], ...] = (
     ("withholding agent", "_role"),
     ("taxpayer", "_role"),
     ("角色", "_role"),
+    ("納稅義務人", "_role"),
+    ("纳税义务人", "_role"),
+    ("扣繳義務人", "_role"),
+    ("扣缴义务人", "_role"),
     ("requirement", "applicability"),
     ("適用條件", "applicability"),
+    ("遵循要件", "applicability"),
+    ("申報要件", "applicability"),
+    ("申报要件", "applicability"),
     ("tax event", "taxable_event"),
     ("trigger point", "taxable_event"),
     ("課稅事件", "taxable_event"),
     ("触发时点", "taxable_event"),
     ("觸發時點", "taxable_event"),
+    ("課稅時點", "taxable_event"),
+    ("课税时点", "taxable_event"),
+    ("發生時點", "taxable_event"),
+    ("发生时点", "taxable_event"),
     ("statutory rate", "rate"),
     ("rate", "rate"),
     ("稅率", "rate"),
@@ -65,6 +78,8 @@ _HEADER_HINTS: tuple[tuple[str, str], ...] = (
     ("taxable item", "taxable_items"),
     ("應稅項目", "taxable_items"),
     ("应税项目", "taxable_items"),
+    ("課稅項目", "taxable_items"),
+    ("课税项目", "taxable_items"),
     ("calculation formula", "formula"),
     ("formula", "formula"),
     ("計算公式", "formula"),
@@ -87,11 +102,23 @@ _HEADER_HINTS: tuple[tuple[str, str], ...] = (
     ("collection period", "payment_deadline"),
     ("繳款期限", "payment_deadline"),
     ("缴款期限", "payment_deadline"),
+    ("繳納期限", "payment_deadline"),
+    ("缴纳期限", "payment_deadline"),
+    ("徵收期間", "payment_deadline"),
+    ("征收期间", "payment_deadline"),
     ("collection management", "administration"),
     ("徵收管理", "administration"),
     ("征收管理", "administration"),
     ("policy basis", "_policy_basis"),
+    ("法規依據", "_policy_basis"),
+    ("法规依据", "_policy_basis"),
+    ("政策依據", "_policy_basis"),
+    ("政策依据", "_policy_basis"),
     ("change content", "_change_content"),
+    ("變更內容", "_change_content"),
+    ("变更内容", "_change_content"),
+    ("修正內容", "_change_content"),
+    ("修正内容", "_change_content"),
 )
 
 
@@ -116,6 +143,7 @@ def import_workbook(
             "skipped": 0,
             "columns_mapped": [],
             "unmapped_headers": [],
+            "missing_identity_columns": [],
             "citations_resolved": 0,
             "citations_unresolved": 0,
         }
@@ -127,6 +155,17 @@ def import_workbook(
 
     unmapped_headers = [
         header[i].strip() for i in range(len(header)) if i not in mapping and header[i].strip()
+    ]
+
+    # A missing prose column costs one cell. A missing identity column is worse:
+    # 稅目 unmapped files every row under 其他稅務規定, and 納稅義務人 unmapped
+    # empties taxpayer_role — which is part of the row's unique key, so distinct
+    # scenarios start colliding. Name these separately from ordinary drift.
+    mapped = set(mapping.values())
+    missing_identity = [
+        label
+        for key, label in (("_tax", "稅種／稅目"), ("_role", "納稅義務人／角色"))
+        if key not in mapped
     ]
 
     imported = 0
@@ -159,6 +198,7 @@ def import_workbook(
         "skipped": skipped,
         "columns_mapped": sorted({v for v in mapping.values() if not v.startswith("_")}),
         "unmapped_headers": unmapped_headers,
+        "missing_identity_columns": missing_identity,
         "citations_resolved": citations_resolved,
         "citations_unresolved": citations_unresolved,
     }
