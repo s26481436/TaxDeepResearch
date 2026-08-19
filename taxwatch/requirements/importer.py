@@ -38,35 +38,60 @@ class MissingDependency(RuntimeError):
 # Header text → field key. Matched as substrings against a normalised header,
 # so 「應納稅額計算公式 (財務簡式)」 still lands on `formula`.
 _HEADER_HINTS: tuple[tuple[str, str], ...] = (
+    # Specific / multi-word hints first
+    ("tax type", "_tax"),
     ("稅種", "_tax"),
     ("税种", "_tax"),
+    ("tax scenario", "_scenario"),
+    ("sub-item", "_scenario"),
+    ("subitem", "_scenario"),
     ("課稅情境", "_scenario"),
     ("子項目", "_scenario"),
     ("子项目", "_scenario"),
+    ("withholding agent", "_role"),
+    ("taxpayer", "_role"),
     ("角色", "_role"),
     ("requirement", "applicability"),
     ("適用條件", "applicability"),
+    ("tax event", "taxable_event"),
+    ("trigger point", "taxable_event"),
     ("課稅事件", "taxable_event"),
     ("触发时点", "taxable_event"),
     ("觸發時點", "taxable_event"),
+    ("statutory rate", "rate"),
+    ("rate", "rate"),
     ("稅率", "rate"),
     ("税率", "rate"),
+    ("taxable item", "taxable_items"),
     ("應稅項目", "taxable_items"),
     ("应税项目", "taxable_items"),
+    ("calculation formula", "formula"),
+    ("formula", "formula"),
     ("計算公式", "formula"),
     ("计算公式", "formula"),
+    ("tax base", "tax_base"),
     ("稅基", "tax_base"),
     ("税基", "tax_base"),
+    ("deduction", "deductions"),
+    ("credit", "deductions"),
     ("扣除", "deductions"),
     ("扣抵", "deductions"),
+    ("incentive", "incentives"),
+    ("reduction", "incentives"),
     ("租稅優惠", "incentives"),
     ("租税优惠", "incentives"),
+    ("filing deadline", "filing_deadline"),
     ("申報期限", "filing_deadline"),
     ("申报期限", "filing_deadline"),
+    ("payment deadline", "payment_deadline"),
+    ("collection period", "payment_deadline"),
     ("繳款期限", "payment_deadline"),
     ("缴款期限", "payment_deadline"),
+    ("collection management", "administration"),
     ("徵收管理", "administration"),
     ("征收管理", "administration"),
+    ("policy basis", "_policy_basis"),
+    ("change content", "_change_content"),
 )
 
 
@@ -84,12 +109,22 @@ def import_workbook(
     """
     rows = _read_rows(path, sheet)
     if not rows:
-        return {"rows": 0, "imported": 0, "skipped": 0}
+        return {
+            "rows": 0,
+            "imported": 0,
+            "skipped": 0,
+            "columns_mapped": [],
+            "unmapped_headers": [],
+        }
 
     header, *body = rows
     mapping = _map_columns(header)
     if "_scenario" not in mapping.values():
         raise ValueError("No 子項目/課稅情境 column found — cannot key the rows")
+
+    unmapped_headers = [
+        header[i].strip() for i in range(len(header)) if i not in mapping and header[i].strip()
+    ]
 
     imported = 0
     skipped = 0
@@ -109,6 +144,7 @@ def import_workbook(
         "imported": imported,
         "skipped": skipped,
         "columns_mapped": sorted({v for v in mapping.values() if not v.startswith("_")}),
+        "unmapped_headers": unmapped_headers,
     }
 
 
@@ -135,9 +171,12 @@ def _map_columns(header: list[str]) -> dict[int, str]:
     """Header index → field key, best-effort."""
     mapping: dict[int, str] = {}
     for index, cell in enumerate(header):
-        normalised = re.sub(r"\s+", "", cell).lower()
+        raw_cell = cell.strip().lower()
+        no_space = re.sub(r"[\s\-_]+", "", raw_cell)
         for hint, field_key in _HEADER_HINTS:
-            if hint.lower() in normalised:
+            hint_lower = hint.lower()
+            hint_no_space = re.sub(r"[\s\-_]+", "", hint_lower)
+            if hint_lower in raw_cell or hint_no_space in no_space:
                 mapping[index] = field_key
                 break
     return mapping
