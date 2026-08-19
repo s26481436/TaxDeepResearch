@@ -221,3 +221,4 @@ __marimo__/
 # The chinatax policy corpus is CC-BY-NC-4.0.
 *.parquet
 data/corpus/
+backups/
