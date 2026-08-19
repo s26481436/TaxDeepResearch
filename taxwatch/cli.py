@@ -298,6 +298,9 @@ def extract_requirements(
             typer.echo(f"抽出 {stats['requirements']} 個課稅情境")
             for r in stats.get("results", []):
                 _echo_failed_batches(r)
+            if dry_run:
+                for row in stats.get("preview", []):
+                    typer.echo(f"  - {row['scenario']} / {row['taxpayer_role'] or '（未分身分）'}")
             if stats["dropped_citations"]:
                 typer.echo(f"⚠ 捨棄 {stats['dropped_citations']} 筆指向不存在條文的引用")
             if stats["uncited_fields"]:
