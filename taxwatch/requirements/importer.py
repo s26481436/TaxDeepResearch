@@ -151,7 +151,22 @@ def import_workbook(
 # ---------- internals ----------
 
 
-def _read_rows(path: str | Path, sheet: str | int) -> list[list[str]]:
+def _read_rows(path: str | Path, sheet: str | int = 0) -> list[list[str]]:
+    p = Path(path)
+    ext = p.suffix.lower()
+
+    if ext in (".md", ".markdown"):
+        return _read_markdown_table(p)
+    elif ext == ".csv":
+        return _read_csv(p)
+    elif ext == ".xlsx":
+        return _read_xlsx(p, sheet)
+    else:
+        # Fallback to xlsx if extension not recognized or try guessing
+        return _read_xlsx(p, sheet)
+
+
+def _read_xlsx(path: Path, sheet: str | int) -> list[list[str]]:
     try:
         from openpyxl import load_workbook
     except ImportError as exc:  # pragma: no cover - depends on optional extra
@@ -165,6 +180,55 @@ def _read_rows(path: str | Path, sheet: str | int) -> list[list[str]]:
     ]
     workbook.close()
     return [row for row in rows if any(cell for cell in row)]
+
+
+def _read_csv(path: Path) -> list[list[str]]:
+    import csv
+
+    with open(path, mode="r", encoding="utf-8", errors="replace") as f:
+        reader = csv.reader(f)
+        return [[cell.strip() for cell in row] for row in reader if any(c.strip() for c in row)]
+
+
+def _read_markdown_table(path: Path) -> list[list[str]]:
+    with open(path, mode="r", encoding="utf-8", errors="replace") as f:
+        content = f.read()
+
+    rows: list[list[str]] = []
+    _BR_RE = re.compile(r"<\s*br\s*/?\s*>", re.IGNORECASE)
+
+    for line in content.splitlines():
+        line_clean = line.strip()
+        if not line_clean or not line_clean.startswith("|") or not line_clean.endswith("|"):
+            continue
+
+        # Strip outer pipes
+        inner = line_clean[1:-1]
+        raw_cells = inner.split("|")
+
+        cleaned_cells: list[str] = []
+        is_delimiter_row = True
+
+        for c in raw_cells:
+            cell_text = c.strip()
+            # Check if this cell is part of markdown delimiter like :---: or ---
+            stripped_dashes = cell_text.replace("-", "").replace(":", "").strip()
+            if stripped_dashes:
+                is_delimiter_row = False
+
+            # Transform <br> to newline
+            cell_text = _BR_RE.sub("\n", cell_text)
+            # Remove markdown bold **
+            cell_text = cell_text.replace("**", "")
+            cleaned_cells.append(cell_text.strip())
+
+        if is_delimiter_row:
+            continue
+
+        if any(cleaned_cells):
+            rows.append(cleaned_cells)
+
+    return rows
 
 
 def _map_columns(header: list[str]) -> dict[int, str]:

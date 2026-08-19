@@ -83,3 +83,62 @@ def test_chinese_headers_still_work():
     assert mapping[1] == "_scenario"
     assert mapping[2] == "_role"
     assert len(mapped_keys) == 14
+
+
+def test_markdown_table_parsing(tmp_path, session):
+    """1. Markdown 表格解析: 表頭、--- 分隔列略過、<br> 轉換、** 去除."""
+    md_content = """
+# 稅務規範表
+
+| Tax Type | Sub-item | Taxpayer | Statutory Rate | Collection Management |
+| :--- | :--- | :--- | :--- | :--- |
+| **增值稅** | 一般貨物銷售 | **一般納稅人** | 13% | 按月申報<br>次月15日內繳納 |
+| 增值稅 | 小規模簡易計稅 | 小規模納稅人 | 3% | 按季申報 |
+| | | | | |
+
+"""
+    md_file = tmp_path / "requirements.md"
+    md_file.write_text(md_content, encoding="utf-8")
+
+    stats = import_workbook(session, md_file, country="CN")
+    assert stats["rows"] == 2
+    assert stats["imported"] == 2
+    assert stats["skipped"] == 0
+
+    from taxwatch.models import TaxRequirement
+
+    req1 = (
+        session.query(TaxRequirement)
+        .filter_by(scenario="一般貨物銷售", taxpayer_role="一般納稅人")
+        .first()
+    )
+    assert req1 is not None
+    by_key = {f.field_key: f for f in req1.fields}
+    assert by_key["rate"].value == "13%"
+    # Verify <br> transformed to newline
+    assert by_key["administration"].value == "按月申報\n次月15日內繳納"
+
+
+def test_csv_table_parsing(tmp_path, session):
+    """8. CSV 讀取."""
+    csv_content = """Tax Type,Sub-item,Taxpayer,Statutory Rate,Filing Deadline
+增值稅,諮詢服務,一般納稅人,6%,次月15日
+"""
+    csv_file = tmp_path / "requirements.csv"
+    csv_file.write_text(csv_content, encoding="utf-8")
+
+    stats = import_workbook(session, csv_file, country="CN")
+    assert stats["rows"] == 1
+    assert stats["imported"] == 1
+
+    from taxwatch.models import TaxRequirement
+
+    req = (
+        session.query(TaxRequirement)
+        .filter_by(scenario="諮詢服務", taxpayer_role="一般納稅人")
+        .first()
+    )
+    assert req is not None
+    by_key = {f.field_key: f for f in req.fields}
+    assert by_key["rate"].value == "6%"
+    assert by_key["filing_deadline"].value == "次月15日"
