@@ -38,35 +38,60 @@ class MissingDependency(RuntimeError):
 # Header text → field key. Matched as substrings against a normalised header,
 # so 「應納稅額計算公式 (財務簡式)」 still lands on `formula`.
 _HEADER_HINTS: tuple[tuple[str, str], ...] = (
+    # Specific / multi-word hints first
+    ("tax type", "_tax"),
     ("稅種", "_tax"),
     ("税种", "_tax"),
+    ("tax scenario", "_scenario"),
+    ("sub-item", "_scenario"),
+    ("subitem", "_scenario"),
     ("課稅情境", "_scenario"),
     ("子項目", "_scenario"),
     ("子项目", "_scenario"),
+    ("withholding agent", "_role"),
+    ("taxpayer", "_role"),
     ("角色", "_role"),
     ("requirement", "applicability"),
     ("適用條件", "applicability"),
+    ("tax event", "taxable_event"),
+    ("trigger point", "taxable_event"),
     ("課稅事件", "taxable_event"),
     ("触发时点", "taxable_event"),
     ("觸發時點", "taxable_event"),
+    ("statutory rate", "rate"),
+    ("rate", "rate"),
     ("稅率", "rate"),
     ("税率", "rate"),
+    ("taxable item", "taxable_items"),
     ("應稅項目", "taxable_items"),
     ("应税项目", "taxable_items"),
+    ("calculation formula", "formula"),
+    ("formula", "formula"),
     ("計算公式", "formula"),
     ("计算公式", "formula"),
+    ("tax base", "tax_base"),
     ("稅基", "tax_base"),
     ("税基", "tax_base"),
+    ("deduction", "deductions"),
+    ("credit", "deductions"),
     ("扣除", "deductions"),
     ("扣抵", "deductions"),
+    ("incentive", "incentives"),
+    ("reduction", "incentives"),
     ("租稅優惠", "incentives"),
     ("租税优惠", "incentives"),
+    ("filing deadline", "filing_deadline"),
     ("申報期限", "filing_deadline"),
     ("申报期限", "filing_deadline"),
+    ("payment deadline", "payment_deadline"),
+    ("collection period", "payment_deadline"),
     ("繳款期限", "payment_deadline"),
     ("缴款期限", "payment_deadline"),
+    ("collection management", "administration"),
     ("徵收管理", "administration"),
     ("征收管理", "administration"),
+    ("policy basis", "_policy_basis"),
+    ("change content", "_change_content"),
 )
 
 
@@ -76,6 +101,7 @@ def import_workbook(
     *,
     country: str = "CN",
     sheet: str | int = 0,
+    source_note: str = "",
 ) -> dict[str, Any]:
     """Load a 申報規範 sheet into the database.
 
@@ -84,23 +110,46 @@ def import_workbook(
     """
     rows = _read_rows(path, sheet)
     if not rows:
-        return {"rows": 0, "imported": 0, "skipped": 0}
+        return {
+            "rows": 0,
+            "imported": 0,
+            "skipped": 0,
+            "columns_mapped": [],
+            "unmapped_headers": [],
+            "citations_resolved": 0,
+            "citations_unresolved": 0,
+        }
 
     header, *body = rows
     mapping = _map_columns(header)
     if "_scenario" not in mapping.values():
         raise ValueError("No 子項目/課稅情境 column found — cannot key the rows")
 
+    unmapped_headers = [
+        header[i].strip() for i in range(len(header)) if i not in mapping and header[i].strip()
+    ]
+
     imported = 0
     skipped = 0
+    citations_resolved = 0
+    citations_unresolved = 0
+    node_index = _provision_node_index(session)
 
     for raw in body:
         record = _row_to_record(raw, mapping)
         if not record.get("_scenario"):
             skipped += 1
             continue
-        _upsert(session, record, country=country)
+        req, resolved_count, unresolved_count = _upsert(
+            session,
+            record,
+            country=country,
+            source_note=source_note,
+            node_index=node_index,
+        )
         imported += 1
+        citations_resolved += resolved_count
+        citations_unresolved += unresolved_count
 
     session.commit()
     logger.info("Imported %d requirement rows from %s", imported, path)
@@ -109,13 +158,31 @@ def import_workbook(
         "imported": imported,
         "skipped": skipped,
         "columns_mapped": sorted({v for v in mapping.values() if not v.startswith("_")}),
+        "unmapped_headers": unmapped_headers,
+        "citations_resolved": citations_resolved,
+        "citations_unresolved": citations_unresolved,
     }
 
 
 # ---------- internals ----------
 
 
-def _read_rows(path: str | Path, sheet: str | int) -> list[list[str]]:
+def _read_rows(path: str | Path, sheet: str | int = 0) -> list[list[str]]:
+    p = Path(path)
+    ext = p.suffix.lower()
+
+    if ext in (".md", ".markdown"):
+        return _read_markdown_table(p)
+    elif ext == ".csv":
+        return _read_csv(p)
+    elif ext == ".xlsx":
+        return _read_xlsx(p, sheet)
+    else:
+        # Fallback to xlsx if extension not recognized or try guessing
+        return _read_xlsx(p, sheet)
+
+
+def _read_xlsx(path: Path, sheet: str | int) -> list[list[str]]:
     try:
         from openpyxl import load_workbook
     except ImportError as exc:  # pragma: no cover - depends on optional extra
@@ -131,13 +198,65 @@ def _read_rows(path: str | Path, sheet: str | int) -> list[list[str]]:
     return [row for row in rows if any(cell for cell in row)]
 
 
+def _read_csv(path: Path) -> list[list[str]]:
+    import csv
+
+    with open(path, mode="r", encoding="utf-8", errors="replace") as f:
+        reader = csv.reader(f)
+        return [[cell.strip() for cell in row] for row in reader if any(c.strip() for c in row)]
+
+
+def _read_markdown_table(path: Path) -> list[list[str]]:
+    with open(path, mode="r", encoding="utf-8", errors="replace") as f:
+        content = f.read()
+
+    rows: list[list[str]] = []
+    _BR_RE = re.compile(r"<\s*br\s*/?\s*>", re.IGNORECASE)
+
+    for line in content.splitlines():
+        line_clean = line.strip()
+        if not line_clean or not line_clean.startswith("|") or not line_clean.endswith("|"):
+            continue
+
+        # Strip outer pipes
+        inner = line_clean[1:-1]
+        raw_cells = inner.split("|")
+
+        cleaned_cells: list[str] = []
+        is_delimiter_row = True
+
+        for c in raw_cells:
+            cell_text = c.strip()
+            # Check if this cell is part of markdown delimiter like :---: or ---
+            stripped_dashes = cell_text.replace("-", "").replace(":", "").strip()
+            if stripped_dashes:
+                is_delimiter_row = False
+
+            # Transform <br> to newline
+            cell_text = _BR_RE.sub("\n", cell_text)
+            # Remove markdown bold **
+            cell_text = cell_text.replace("**", "")
+            cleaned_cells.append(cell_text.strip())
+
+        if is_delimiter_row:
+            continue
+
+        if any(cleaned_cells):
+            rows.append(cleaned_cells)
+
+    return rows
+
+
 def _map_columns(header: list[str]) -> dict[int, str]:
     """Header index → field key, best-effort."""
     mapping: dict[int, str] = {}
     for index, cell in enumerate(header):
-        normalised = re.sub(r"\s+", "", cell).lower()
+        raw_cell = cell.strip().lower()
+        no_space = re.sub(r"[\s\-_]+", "", raw_cell)
         for hint, field_key in _HEADER_HINTS:
-            if hint.lower() in normalised:
+            hint_lower = hint.lower()
+            hint_no_space = re.sub(r"[\s\-_]+", "", hint_lower)
+            if hint_lower in raw_cell or hint_no_space in no_space:
                 mapping[index] = field_key
                 break
     return mapping
@@ -151,7 +270,32 @@ def _row_to_record(row: list[str], mapping: dict[int, str]) -> dict[str, str]:
     return record
 
 
-def _upsert(session: Session, record: dict[str, str], *, country: str) -> TaxRequirement:
+def _provision_node_index(session: Session) -> dict[str, str]:
+    """{正規化後的 node_key: 實際存放的 node_key}, built once per import.
+
+    Resolving each citation with its own query — and falling back to a full
+    table scan when the exact key misses — turns an 80-row sheet into hundreds
+    of passes over every provision of every snapshot. The matrix is small; the
+    provision table is not.
+    """
+    from taxwatch.graph.resolver import normalize_entity_key
+    from taxwatch.models import ProvisionNode
+
+    index: dict[str, str] = {}
+    for (node_key,) in session.query(ProvisionNode.node_key).distinct():
+        if node_key:
+            index.setdefault(normalize_entity_key(node_key), node_key)
+    return index
+
+
+def _upsert(
+    session: Session,
+    record: dict[str, str],
+    *,
+    country: str,
+    source_note: str = "",
+    node_index: dict[str, str] | None = None,
+) -> tuple[TaxRequirement, int, int]:
     tax_key = _tax_key(record.get("_tax", ""), country=country)
     scenario = record["_scenario"]
     role = record.get("_role", "")
@@ -170,7 +314,56 @@ def _upsert(session: Session, record: dict[str, str], *, country: str) -> TaxReq
         )
         session.add(requirement)
     requirement.status = RequirementStatus.DRAFT
+
+    if source_note.strip():
+        note_str = source_note.strip()
+        if requirement.notes:
+            if note_str not in requirement.notes:
+                requirement.notes = f"{requirement.notes}\n{note_str}"
+        else:
+            requirement.notes = note_str
+
     session.flush()
+
+    # Extract citations from Policy Basis if present
+    from taxwatch.graph.citation import extract_citations
+    from taxwatch.graph.resolver import normalize_entity_key
+
+    if node_index is None:
+        node_index = _provision_node_index(session)
+
+    policy_basis = record.get("_policy_basis", "").strip()
+    citations_data: list[dict[str, Any]] = []
+    resolved_count = 0
+    unresolved_count = 0
+
+    if policy_basis:
+        extracted = extract_citations(policy_basis)
+        if extracted:
+            # Dedup extracted entity_keys
+            unique_cits: list[Any] = []
+            seen_keys: set[str] = set()
+            for cit in extracted:
+                if cit.entity_key not in seen_keys:
+                    seen_keys.add(cit.entity_key)
+                    unique_cits.append(cit)
+
+            for cit in unique_cits:
+                stored_key = node_index.get(normalize_entity_key(cit.entity_key))
+                if stored_key:
+                    citations_data.append(
+                        {
+                            "node_key": stored_key,
+                            "title": stored_key.split("#", 1)[0],
+                            "quote": cit.raw_text or policy_basis[:100],
+                        }
+                    )
+                    resolved_count += 1
+                else:
+                    unresolved_count += 1
+        else:
+            # Policy basis text exists but extract_citations found 0 citations
+            unresolved_count += 1
 
     existing = {f.field_key: f for f in requirement.fields}
     for field_key in FIELD_KEYS:
@@ -185,15 +378,17 @@ def _upsert(session: Session, record: dict[str, str], *, country: str) -> TaxReq
 
         field.value = value
         field.source = FieldSource.IMPORT
-        field.citations = []
+        field.citations = citations_data
         field.confidence = 0.0
-        # Imported prose has no provision behind it yet, so the system cannot
-        # tell when it goes out of date. Say so rather than imply it is tracked.
         field.needs_review = True
-        field.review_reason = "由試算表匯入，尚未對應條文，法規異動時無法自動追蹤"
+
+        if citations_data:
+            field.review_reason = "由試算表匯入，已對應條文但內容未經人工確認"
+        else:
+            field.review_reason = "由試算表匯入，尚未對應條文，法規異動時無法自動追蹤"
 
     session.flush()
-    return requirement
+    return requirement, resolved_count, unresolved_count
 
 
 def _tax_key(label: str, country: str = "CN") -> str:
