@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     llm_retry_base_delay: float = 5.0
     llm_retry_max_delay: float = 120.0
     llm_retry_on_bad_request: bool = True
+    # Multiplier applied to max_tokens when output is truncated. 1.0 disables
+    # growth, which is the right default here: a longer generation is exactly
+    # what trips this deployment's gateway into a 502, and the caller can split
+    # its input instead — smaller ask, shorter generation, same total coverage.
+    llm_max_tokens_growth: float = 1.0
     # Seconds to wait between batches. The gateway returns 400 when several
     # requests land together, so a batched run paces itself rather than
     # firing every batch back to back.
