@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from taxwatch.corpus.store import make_classifier
@@ -17,6 +18,11 @@ from taxwatch.models import (
     Snapshot,
     Source,
 )
+
+
+# Order changes by the date the authority put on the version, not by when the
+# crawler noticed. Sources that publish no date at all fall back to fetch time.
+_DATED_AT = func.coalesce(Snapshot.issued_at, Snapshot.fetched_at)
 
 
 class ChangeNotFound(LookupError):
@@ -72,10 +78,13 @@ def list_changes(
 ) -> list[dict[str, Any]]:
     cutoff = datetime.utcnow() - timedelta(days=days)
     query = (
-        session.query(Change, Document, Source, Analysis)
+        session.query(Change, Document, Source, Analysis, Snapshot)
         .join(Document, Change.document_id == Document.id)
         .join(Source, Document.source_id == Source.id)
         .outerjoin(Analysis, Analysis.change_id == Change.id)
+        .outerjoin(Snapshot, Snapshot.id == Change.to_snapshot_id)
+        # The cutoff stays on detection: this page answers "what did we find
+        # recently". Ordering and display use the authority's own date.
         .filter(Change.detected_at >= cutoff)
     )
     if country:
@@ -84,24 +93,25 @@ def list_changes(
         query = query.filter(Change.severity == severity)
 
     classify_doc = make_classifier(session)
-    matched_rows: list[tuple[Any, Any, Any, Any, Any]] = []
-    for change, doc, source, analysis in query.order_by(Change.detected_at.desc()).all():
+    matched_rows: list[tuple[Any, Any, Any, Any, Any, Any]] = []
+    ordered = query.order_by(_DATED_AT.desc(), Change.detected_at.desc())
+    for change, doc, source, analysis, snapshot in ordered.all():
         tax_type = classify_doc(doc.title, doc.external_id, source.country)
         if tax_key and tax_type.key != tax_key:
             continue
-        matched_rows.append((change, doc, source, analysis, tax_type))
+        matched_rows.append((change, doc, source, analysis, tax_type, snapshot))
         if len(matched_rows) >= limit:
             break
 
     from taxwatch.graph.resolver import normalize_entity_key
     from taxwatch.services.requirements import affected_by_node_keys
 
-    node_keys = [change.node_key for change, _, _, _, _ in matched_rows]
+    node_keys = [row[0].node_key for row in matched_rows]
     affected_map = affected_by_node_keys(session, node_keys)
 
     rows: list[dict[str, Any]] = []
-    for change, doc, source, analysis, tax_type in matched_rows:
-        row_dict = _change_row(change, doc, source, analysis, tax_type)
+    for change, doc, source, analysis, tax_type, snapshot in matched_rows:
+        row_dict = _change_row(change, doc, source, analysis, tax_type, snapshot)
         norm_key = normalize_entity_key(change.node_key)
         row_dict["affected_requirements"] = affected_map.get(norm_key, [])
         rows.append(row_dict)
@@ -111,19 +121,27 @@ def list_changes(
 
 def get_change_detail(session: Session, change_id: int) -> dict[str, Any]:
     row = (
-        session.query(Change, Document, Source, Analysis)
+        session.query(Change, Document, Source, Analysis, Snapshot)
         .join(Document, Change.document_id == Document.id)
         .join(Source, Document.source_id == Source.id)
         .outerjoin(Analysis, Analysis.change_id == Change.id)
+        .outerjoin(Snapshot, Snapshot.id == Change.to_snapshot_id)
         .filter(Change.id == change_id)
         .first()
     )
     if row is None:
         raise ChangeNotFound(str(change_id))
 
-    change, doc, source, analysis = row
+    change, doc, source, analysis, snapshot = row
     classify_doc = make_classifier(session)
-    detail = _change_row(change, doc, source, analysis, classify_doc(doc.title, doc.external_id, source.country))
+    detail = _change_row(
+        change,
+        doc,
+        source,
+        analysis,
+        classify_doc(doc.title, doc.external_id, source.country),
+        snapshot,
+    )
 
     from taxwatch.graph.resolver import normalize_entity_key
     from taxwatch.services.requirements import affected_by_node_keys
@@ -189,12 +207,17 @@ def get_run_health(session: Session, *, limit: int = 100) -> dict[str, Any]:
     }
 
 
-def _change_row(change, doc, source, analysis, tax_type) -> dict[str, Any]:
+def _change_row(change, doc, source, analysis, tax_type, snapshot=None) -> dict[str, Any]:
     return {
         "id": change.id,
         "node_key": change.node_key,
         "change_type": change.change_type.value,
         "severity": change.severity.value,
+        # 發布日期 is what belongs on a timeline; detected_at is when the
+        # crawler happened to look, and a first crawl stamps today on decades
+        # of law at once.
+        "issued_at": snapshot.dated_at.isoformat() if snapshot else None,
+        "official_date": bool(snapshot and snapshot.has_official_date),
         "detected_at": change.detected_at.isoformat(),
         "document_title": doc.title,
         "external_id": doc.external_id,

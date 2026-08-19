@@ -136,13 +136,14 @@ def get_summary(
         )
 
         rows = (
-            session.query(Change, Analysis)
+            session.query(Change, Analysis, Snapshot)
             .outerjoin(Analysis, Analysis.change_id == Change.id)
+            .outerjoin(Snapshot, Snapshot.id == Change.to_snapshot_id)
             .filter(Change.document_id == doc.id, Change.detected_at >= cutoff)
             .order_by(Change.detected_at.desc())
             .all()
         )
-        for change, analysis in rows:
+        for change, analysis, snapshot in rows:
             if analysis is not None:
                 confidence_values.append(analysis.confidence)
             changes.append(
@@ -153,6 +154,11 @@ def get_summary(
                     "node_key": change.node_key,
                     "change_type": change.change_type.value,
                     "severity": change.severity.value,
+                    # When the authority dated this version. A timeline built on
+                    # detected_at says when the crawler noticed, which for a
+                    # first crawl is "today" for every statute it pulled in.
+                    "issued_at": snapshot.dated_at.isoformat() if snapshot else None,
+                    "official_date": bool(snapshot and snapshot.has_official_date),
                     "detected_at": change.detected_at.isoformat(),
                     "summary": analysis.summary_zh if analysis else "",
                     "effective_date": analysis.effective_date if analysis else "",
@@ -164,7 +170,9 @@ def get_summary(
     if not documents:
         raise TaxTypeNotFound(tax_key)
 
-    changes.sort(key=lambda c: c["detected_at"], reverse=True)
+    # Order by the date the authority put on the document, falling back to the
+    # detection time only where a source publishes no date at all.
+    changes.sort(key=lambda c: (c["issued_at"] or c["detected_at"]), reverse=True)
     documents.sort(key=lambda d: d["last_updated"] or "", reverse=True)
 
     # An implementing regulation is its parent statute's operative detail, not a
