@@ -64,13 +64,17 @@
     <div class="tl">
       {% for c in summary.changes %}
       <div class="tl-item {{ 'crit' if c.severity == 'critical' }}">
-        <div class="tl-date">{{ c.detected_at | shortdate }}</div>
+        <div class="tl-date">
+          {{ (c.issued_at or c.detected_at) | shortdate }}
+          {% if not c.official_date %}<span class="tag" style="font-size:10px" title="來源未提供發布日期，此處顯示擷取時間">推定</span>{% endif %}
+        </div>
         <div class="tl-title"><a href="/changes/{{ c.id }}">{{ c.document_title }} — {{ c.node_key }}</a></div>
         {% if c.summary %}<div style="font-size:13px;color:var(--muted)">{{ c.summary }}</div>{% endif %}
         <div style="margin-top:6px">
           <span class="badge {{ c.severity | severity_class }}">{{ c.severity }}</span>
           <span class="tag">{{ c.change_type }}</span>
           {% if c.effective_date %}<span class="tag">生效 {{ c.effective_date }}</span>{% endif %}
+          <span class="tag" style="color:var(--muted)">偵測 {{ c.detected_at | shortdate }}</span>
           {% for p in c.affected_parties %}<span class="tag">{{ p }}</span>{% endfor %}
         </div>
       </div>

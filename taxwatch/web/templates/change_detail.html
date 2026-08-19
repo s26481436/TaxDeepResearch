@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}異動 #{{ change.id }}{% endblock %}
 {% block heading %}{{ change.document_title }}{% endblock %}
-{% block subheading %}{{ change.node_key }} · 偵測於 {{ change.detected_at | shortdate }}{% endblock %}
+{% block subheading %}{{ change.node_key }} · 發布於 {{ (change.issued_at or change.detected_at) | shortdate }}{% if not change.official_date %}（推定）{% endif %}{% endblock %}
 
 {% block topbar_actions %}
 {% if change.document_url %}
@@ -31,7 +31,11 @@
       <dt>條文</dt><dd class="mono">{{ change.node_key }}</dd>
       <dt>稅種</dt><dd>{{ change.tax_name }}</dd>
       <dt>來源</dt><dd class="mono">{{ change.source_key }}</dd>
-      <dt>偵測時間</dt><dd class="mono">{{ change.detected_at }}</dd>
+      <dt>發布日期</dt><dd class="mono">
+        {{ (change.issued_at or change.detected_at) | shortdate }}
+        {% if not change.official_date %}<span class="tag" title="來源未提供發布日期，此處顯示擷取時間">推定</span>{% endif %}
+      </dd>
+      <dt>偵測時間</dt><dd class="mono" style="color:var(--muted)">{{ change.detected_at }}</dd>
     </dl>
   </div>
 </div>

@@ -42,13 +42,17 @@
     {% if changes %}
     <table>
       <thead>
-        <tr><th>偵測日期</th><th>法規／條文</th><th>稅種</th><th>轄區</th>
+        <tr><th>發布日期</th><th>法規／條文</th><th>稅種</th><th>轄區</th>
             <th>類型</th><th>嚴重度</th><th>生效日</th><th class="num">信心度</th></tr>
       </thead>
       <tbody>
         {% for c in changes %}
         <tr>
-          <td class="mono">{{ c.detected_at | shortdate }}</td>
+          <td class="mono">
+            {{ (c.issued_at or c.detected_at) | shortdate }}
+            {% if not c.official_date %}<span class="tag" style="font-size:10px" title="來源未提供發布日期，此處顯示擷取時間">推定</span>{% endif %}
+            <div style="color:var(--muted);font-size:11px">偵測 {{ c.detected_at | shortdate }}</div>
+          </td>
           <td>
             <a href="/changes/{{ c.id }}"><strong>{{ c.document_title }}</strong></a>
             <div class="mono" style="color:var(--muted);font-size:11.5px">{{ c.node_key }}</div>
