@@ -21,7 +21,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from taxwatch.analysis.client import get_llm_client
+from taxwatch.analysis.client import LLMOutputTruncated, get_llm_client
 from taxwatch.models import (
     Document,
     FieldSource,
@@ -205,7 +205,9 @@ def extract_for_document(
     tax_name = _tax_name(resolved_tax_key)
 
     batches = _render_batches(view)
-    all_allowed_nodes: set[str] = set().union(*(b[1] for b in batches)) if batches else set()
+    all_allowed_nodes: set[str] = set()
+    for group in batches:
+        all_allowed_nodes.update(_group_nodes(group))
     if not all_allowed_nodes:
         raise NoSourceDocument(f"{external_id} has no parsed provisions to extract from")
 
@@ -229,15 +231,28 @@ def extract_for_document(
 
     inter_batch_delay = get_settings().llm_inter_batch_delay
 
-    for batch_idx, (provisions_block, batch_allowed) in enumerate(batches, start=1):
+    # Work stack rather than a plain loop: a batch whose output overran the
+    # token budget is split in half and both halves pushed back. Asking for
+    # more output instead would lengthen the generation, which is precisely
+    # what times out on this deployment's gateway — trading a truncation, from
+    # which a split recovers, for a 502, from which nothing does.
+    pending: list[tuple[str, list[tuple[str, set[str]]]]] = [
+        (str(i), group) for i, group in enumerate(reversed(batches), start=1)
+    ]
+    batch_seq = 0
+
+    while pending:
+        label, group = pending.pop()
+        batch_seq += 1
+
         # Concurrent requests are what trips the gateway into 400s; space them.
-        if batch_idx > 1 and inter_batch_delay > 0:
+        if batch_seq > 1 and inter_batch_delay > 0:
             time.sleep(inter_batch_delay)
 
         prompt = EXTRACTION_TEMPLATE.format(
             tax_name=tax_name,
             field_definitions=field_defs,
-            provisions=provisions_block,
+            provisions=_group_text(group),
         )
 
         try:
@@ -246,19 +261,38 @@ def extract_for_document(
                 user_prompt=prompt,
                 output_model=RequirementSetOut,
             )
+        except LLMOutputTruncated as exc:
+            if len(group) > 1:
+                mid = len(group) // 2
+                logger.warning(
+                    "Batch %s output overran the token budget; splitting %d blocks into %d + %d",
+                    label,
+                    len(group),
+                    mid,
+                    len(group) - mid,
+                )
+                pending.append((f"{label}b", group[mid:]))
+                pending.append((f"{label}a", group[:mid]))
+                continue
+            # A single provision that cannot be answered within the budget is
+            # not divisible any further.
+            logger.warning("Batch %s is a single block and still overran; giving up on it", label)
+            failed_batches.append(
+                {"batch": label, "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
+            )
+            continue
         except Exception as exc:  # noqa: BLE001 — one bad batch must not void the rest
             # Losing batch 9 used to discard batches 1-8 as well, because
             # nothing was written until every batch had returned. A partial
             # matrix that names its own gaps beats an empty one.
             logger.warning(
-                "Batch %d/%d failed (%s): %s",
-                batch_idx,
-                len(batches),
+                "Batch %s failed (%s): %s",
+                label,
                 type(exc).__name__,
                 str(exc)[:200],
             )
             failed_batches.append(
-                {"batch": batch_idx, "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
+                {"batch": label, "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
             )
             continue
 
@@ -327,7 +361,7 @@ def extract_for_document(
 # ---------- internals ----------
 
 
-def _render_batches(view: dict[str, Any]) -> list[tuple[str, set[str]]]:
+def _render_batches(view: dict[str, Any]) -> list[list[tuple[str, set[str]]]]:
     """Split consolidated view provisions into batches that fit within _MAX_PROVISION_CHARS.
 
     Splits occur on article/supplement boundaries.
@@ -360,28 +394,36 @@ def _render_batches(view: dict[str, Any]) -> list[tuple[str, set[str]]]:
         return []
 
     budget = _batch_chars()
-    batches: list[tuple[str, set[str]]] = []
-    current_lines: list[str] = []
-    current_nodes: set[str] = set()
+    batches: list[list[tuple[str, set[str]]]] = []
+    current_group: list[tuple[str, set[str]]] = []
     current_chars = 0
 
     for block_text, block_nodes in blocks:
         block_len = len(block_text)
         # If adding this block exceeds budget (and current batch is not empty), finish current batch
-        if current_chars + block_len > budget and current_lines:
-            batches.append(("\n".join(current_lines), current_nodes))
-            current_lines = []
-            current_nodes = set()
+        if current_chars + block_len > budget and current_group:
+            batches.append(current_group)
+            current_group = []
             current_chars = 0
 
-        current_lines.append(block_text)
-        current_nodes.update(block_nodes)
+        current_group.append((block_text, block_nodes))
         current_chars += block_len
 
-    if current_lines:
-        batches.append(("\n".join(current_lines), current_nodes))
+    if current_group:
+        batches.append(current_group)
 
     return batches
+
+
+def _group_text(group: list[tuple[str, set[str]]]) -> str:
+    return "\n".join(text for text, _ in group)
+
+
+def _group_nodes(group: list[tuple[str, set[str]]]) -> set[str]:
+    nodes: set[str] = set()
+    for _, block_nodes in group:
+        nodes.update(block_nodes)
+    return nodes
 
 
 def _render_provisions(view: dict[str, Any]) -> tuple[str, set[str], int]:

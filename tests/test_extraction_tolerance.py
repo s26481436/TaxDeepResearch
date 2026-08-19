@@ -39,7 +39,7 @@ def test_batches_split_on_settings_not_hard_cap(monkeypatch):
     monkeypatch.setattr(ext, "_batch_chars", lambda: 100)
     batches = ext._render_batches(_view(6))
     assert len(batches) > 1
-    assert all(len(text) <= 200 for text, _ in batches)
+    assert all(len(ext._group_text(group)) <= 200 for group in batches)
 
 
 def test_batch_size_never_exceeds_hard_cap(monkeypatch):

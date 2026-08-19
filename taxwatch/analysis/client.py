@@ -72,6 +72,18 @@ def _retry_after_seconds(exc: Exception) -> float | None:
         return None
 
 
+class LLMOutputTruncated(RuntimeError):
+    """The model ran out of output budget before finishing its JSON.
+
+    Distinct from malformed output: the response is incomplete, not wrong, and
+    the fix is to ask for less rather than to allow more. Growing the budget
+    makes the generation longer, which on a gateway that times out long
+    requests trades a truncation for a 502 — a worse failure, because a
+    truncated batch can still be split and retried while a timeout returns
+    nothing at all.
+    """
+
+
 class SchemaSupport(StrEnum):
     JSON_SCHEMA = "json_schema"
     JSON_OBJECT = "json_object"
@@ -98,6 +110,7 @@ class LLMClient:
         self.retry_base_delay = settings.llm_retry_base_delay
         self.retry_max_delay = settings.llm_retry_max_delay
         self.retry_on_bad_request = settings.llm_retry_on_bad_request
+        self.max_tokens_growth = settings.llm_max_tokens_growth
         self._schema_support: SchemaSupport | None = None
 
     def detect_capabilities(self) -> SchemaSupport:
@@ -164,20 +177,19 @@ class LLMClient:
             # Truncated output parses as "malformed JSON", which sends the retry
             # off fixing syntax it never got wrong. Give it more room instead.
             if choice.finish_reason == "length":
-                if attempt < max_retries:
+                grown = int(budget * self.max_tokens_growth)
+                if self.max_tokens_growth > 1.0 and attempt < max_retries:
                     logger.warning(
                         "LLM output hit the %d-token limit; retrying with %d",
                         budget,
-                        budget * 2,
+                        grown,
                     )
-                    budget *= 2
+                    budget = grown
                     continue
-                msg = (
-                    f"LLM output was truncated at the {budget}-token limit "
-                    f"(LLM_MAX_TOKENS). The response is incomplete JSON, not invalid "
-                    f"JSON — raise LLM_MAX_TOKENS or extract from fewer provisions."
+                raise LLMOutputTruncated(
+                    f"output truncated at the {budget}-token limit; "
+                    f"the caller should supply fewer provisions"
                 )
-                raise ValueError(msg)
 
             try:
                 data = json.loads(content)
