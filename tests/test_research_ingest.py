@@ -142,3 +142,35 @@ def test_csv_table_parsing(tmp_path, session):
     by_key = {f.field_key: f for f in req.fields}
     assert by_key["rate"].value == "6%"
     assert by_key["filing_deadline"].value == "次月15日"
+
+
+def test_source_note_saved_and_appended(tmp_path, session):
+    """7. source_note 寫入 notes 且不覆蓋既有內容."""
+    from taxwatch.models import TaxRequirement
+
+    csv_content = """Tax Type,Sub-item,Taxpayer,Statutory Rate
+增值稅,一般貨物,一般納稅人,13%
+"""
+    csv_file = tmp_path / "req_note.csv"
+    csv_file.write_text(csv_content, encoding="utf-8")
+
+    # First import with note 1
+    import_workbook(
+        session, csv_file, country="CN", source_note="gpt-researcher run 1 2026-08-19"
+    )
+    req = (
+        session.query(TaxRequirement)
+        .filter_by(scenario="一般貨物", taxpayer_role="一般納稅人")
+        .first()
+    )
+    assert req is not None
+    assert req.notes == "gpt-researcher run 1 2026-08-19"
+
+    # Second import with note 2 (should append, not overwrite)
+    import_workbook(
+        session, csv_file, country="CN", source_note="manual adjustment 2026-08-20"
+    )
+    session.refresh(req)
+    assert "gpt-researcher run 1 2026-08-19" in req.notes
+    assert "manual adjustment 2026-08-20" in req.notes
+    assert req.notes == "gpt-researcher run 1 2026-08-19\nmanual adjustment 2026-08-20"

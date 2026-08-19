@@ -101,6 +101,7 @@ def import_workbook(
     *,
     country: str = "CN",
     sheet: str | int = 0,
+    source_note: str = "",
 ) -> dict[str, Any]:
     """Load a 申報規範 sheet into the database.
 
@@ -134,7 +135,7 @@ def import_workbook(
         if not record.get("_scenario"):
             skipped += 1
             continue
-        _upsert(session, record, country=country)
+        _upsert(session, record, country=country, source_note=source_note)
         imported += 1
 
     session.commit()
@@ -254,7 +255,13 @@ def _row_to_record(row: list[str], mapping: dict[int, str]) -> dict[str, str]:
     return record
 
 
-def _upsert(session: Session, record: dict[str, str], *, country: str) -> TaxRequirement:
+def _upsert(
+    session: Session,
+    record: dict[str, str],
+    *,
+    country: str,
+    source_note: str = "",
+) -> TaxRequirement:
     tax_key = _tax_key(record.get("_tax", ""), country=country)
     scenario = record["_scenario"]
     role = record.get("_role", "")
@@ -273,6 +280,15 @@ def _upsert(session: Session, record: dict[str, str], *, country: str) -> TaxReq
         )
         session.add(requirement)
     requirement.status = RequirementStatus.DRAFT
+
+    if source_note.strip():
+        note_str = source_note.strip()
+        if requirement.notes:
+            if note_str not in requirement.notes:
+                requirement.notes = f"{requirement.notes}\n{note_str}"
+        else:
+            requirement.notes = note_str
+
     session.flush()
 
     existing = {f.field_key: f for f in requirement.fields}
