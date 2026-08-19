@@ -13,6 +13,10 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://taxwatch:taxwatch_dev@localhost:5432/taxwatch"
     db_schema: str = ""  # PostgreSQL schema name; empty = use public (default)
+    # Drop pooled connections older than this. Long extraction runs leave a
+    # connection idle for the whole LLM phase; many managed PostgreSQL setups
+    # and connection proxies close those well before the run finishes.
+    db_pool_recycle: int = 900
 
     llm_base_url: str = "http://localhost:8000/v1"
     llm_api_key: str = "not-needed"

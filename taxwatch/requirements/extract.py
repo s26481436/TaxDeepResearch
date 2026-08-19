@@ -202,6 +202,15 @@ def extract_for_document(
     if not all_allowed_nodes:
         raise NoSourceDocument(f"{external_id} has no parsed provisions to extract from")
 
+    # Everything the prompts need has been read. Close the read transaction
+    # before the LLM phase: a batched extraction spends minutes to tens of
+    # minutes out there once gateway retries and suspension backoffs are
+    # counted, and a connection left open through that is routinely closed by
+    # the server or a connection proxy. Committing returns it to the pool, so
+    # the writes below check out a fresh, pre-pinged connection instead of a
+    # corpse.
+    session.commit()
+
     client = get_llm_client()
     field_defs = format_field_definitions()
 
