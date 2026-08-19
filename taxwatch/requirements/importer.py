@@ -133,6 +133,7 @@ def import_workbook(
     skipped = 0
     citations_resolved = 0
     citations_unresolved = 0
+    node_index = _provision_node_index(session)
 
     for raw in body:
         record = _row_to_record(raw, mapping)
@@ -140,7 +141,11 @@ def import_workbook(
             skipped += 1
             continue
         req, resolved_count, unresolved_count = _upsert(
-            session, record, country=country, source_note=source_note
+            session,
+            record,
+            country=country,
+            source_note=source_note,
+            node_index=node_index,
         )
         imported += 1
         citations_resolved += resolved_count
@@ -265,12 +270,31 @@ def _row_to_record(row: list[str], mapping: dict[int, str]) -> dict[str, str]:
     return record
 
 
+def _provision_node_index(session: Session) -> dict[str, str]:
+    """{正規化後的 node_key: 實際存放的 node_key}, built once per import.
+
+    Resolving each citation with its own query — and falling back to a full
+    table scan when the exact key misses — turns an 80-row sheet into hundreds
+    of passes over every provision of every snapshot. The matrix is small; the
+    provision table is not.
+    """
+    from taxwatch.graph.resolver import normalize_entity_key
+    from taxwatch.models import ProvisionNode
+
+    index: dict[str, str] = {}
+    for (node_key,) in session.query(ProvisionNode.node_key).distinct():
+        if node_key:
+            index.setdefault(normalize_entity_key(node_key), node_key)
+    return index
+
+
 def _upsert(
     session: Session,
     record: dict[str, str],
     *,
     country: str,
     source_note: str = "",
+    node_index: dict[str, str] | None = None,
 ) -> tuple[TaxRequirement, int, int]:
     tax_key = _tax_key(record.get("_tax", ""), country=country)
     scenario = record["_scenario"]
@@ -304,7 +328,9 @@ def _upsert(
     # Extract citations from Policy Basis if present
     from taxwatch.graph.citation import extract_citations
     from taxwatch.graph.resolver import normalize_entity_key
-    from taxwatch.models import ProvisionNode
+
+    if node_index is None:
+        node_index = _provision_node_index(session)
 
     policy_basis = record.get("_policy_basis", "").strip()
     citations_data: list[dict[str, Any]] = []
@@ -323,26 +349,12 @@ def _upsert(
                     unique_cits.append(cit)
 
             for cit in unique_cits:
-                norm_key = normalize_entity_key(cit.entity_key)
-                # Check if this node_key exists in the database
-                existing_node = (
-                    session.query(ProvisionNode)
-                    .filter(ProvisionNode.node_key == cit.entity_key)
-                    .first()
-                )
-                if not existing_node:
-                    # Try matching by normalized key across provision nodes
-                    candidates = session.query(ProvisionNode).all()
-                    existing_node = next(
-                        (n for n in candidates if normalize_entity_key(n.node_key) == norm_key),
-                        None,
-                    )
-
-                if existing_node:
+                stored_key = node_index.get(normalize_entity_key(cit.entity_key))
+                if stored_key:
                     citations_data.append(
                         {
-                            "node_key": existing_node.node_key,
-                            "title": existing_node.node_key.split("#", 1)[0],
+                            "node_key": stored_key,
+                            "title": stored_key.split("#", 1)[0],
                             "quote": cit.raw_text or policy_basis[:100],
                         }
                     )

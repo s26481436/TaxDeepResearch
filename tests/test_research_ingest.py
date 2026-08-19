@@ -339,3 +339,36 @@ def test_cli_import_requirements(tmp_path, session, monkeypatch):
     assert "匯入 1 列" in result.output
     assert "Unknown Column" in result.output
     assert "未對應的表頭" in result.output
+
+
+def test_node_index_is_built_once_per_import(session, monkeypatch, tmp_path):
+    """Resolving citations must not re-scan the provision table per row.
+
+    Each citation used to run its own query and, on a miss, a full scan of every
+    provision of every snapshot — an 80-row sheet became hundreds of passes.
+    """
+    from taxwatch.requirements import importer
+
+    calls = {"n": 0}
+    real = importer._provision_node_index
+
+    def counting(sess):
+        calls["n"] += 1
+        return real(sess)
+
+    monkeypatch.setattr(importer, "_provision_node_index", counting)
+
+    sheet = tmp_path / "matrix.md"
+    header = (
+        "| Tax Type | Sub-Item | Taxpayer | Statutory Rate | Policy Basis |\n"
+        "| --- | --- | --- | --- | --- |\n"
+    )
+    body = "".join(
+        f"| 所得稅 | 情境{i} | 一般納稅人 | 20% | 所得稅法第92條 |\n" for i in range(1, 11)
+    )
+    sheet.write_text(header + body, encoding="utf-8")
+
+    stats = importer.import_workbook(session, sheet, country="TW")
+
+    assert stats["imported"] == 10
+    assert calls["n"] == 1, "index rebuilt per row"
