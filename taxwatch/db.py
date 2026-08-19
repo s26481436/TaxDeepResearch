@@ -21,6 +21,14 @@ def get_engine():
         _engine = create_engine(
             settings.database_url,
             echo=False,
+            # An extraction run holds a session across every LLM call for the
+            # tax — minutes to tens of minutes once retries and gateway
+            # suspension backoffs are counted. A pooled connection is long dead
+            # by the time the writes begin, and the failure surfaces as
+            # "server closed the connection unexpectedly" on an ordinary SELECT.
+            # Pre-ping validates on checkout and reconnects transparently.
+            pool_pre_ping=True,
+            pool_recycle=settings.db_pool_recycle,
             **_schema_connect_args(settings.database_url, settings.db_schema.strip()),
         )
     return _engine
