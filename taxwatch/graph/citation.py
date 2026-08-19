@@ -241,6 +241,41 @@ _RULES: list[_Rule] = [
 ]
 
 
+
+# 第66條之9 and 第66之9條 are the same provision written two ways. The rules
+# below all expect the sub-article *before* 條, which is the form the MOJ JSON
+# uses; normalising the other form once here beats threading an optional group
+# through every pattern and shifting their group indices.
+_SUFFIX_SUB_ARTICLE = re.compile(
+    rf"第\s*(\d+|[{CN_NUMERAL_CHARS}]{{1,8}})\s*[條条]\s*之\s*(\d+|[{CN_NUMERAL_CHARS}]{{1,3}})"
+)
+
+# 「所得稅法第88條、第92條」 names two provisions of one law. Only the first
+# carries the law name, so the trailing items are invisible to the rules —
+# and a filing requirement that rests on two articles would silently keep one.
+_ARTICLE_RUN = re.compile(
+    rf"[、,，及和與]\s*第\s*(\d+(?:-\d+)?(?:之\d+)?|[{CN_NUMERAL_CHARS}]{{1,8}}(?:之[{CN_NUMERAL_CHARS}]{{1,3}})?)\s*[條条]"
+)
+
+
+def _normalise_sub_articles(text: str) -> str:
+    """第66條之9 -> 第66之9條, so one form reaches the rules."""
+    return _SUFFIX_SUB_ARTICLE.sub(r"第\1之\2條", text)
+
+
+def _article_run_keys(text: str, law_name: str, end: int) -> list[tuple[str, str]]:
+    """Extra provisions listed after a law+article match, as (key, raw_text)."""
+    keys: list[tuple[str, str]] = []
+    position = end
+    while True:
+        match = _ARTICLE_RUN.match(text, position)
+        if match is None:
+            break
+        keys.append((_article_key(law_name, match.group(1)), match.group(0).strip()))
+        position = match.end()
+    return keys
+
+
 def extract_citations(
     text: str,
     *,
@@ -253,26 +288,35 @@ def extract_citations(
     (本法第14條, 本條例第3條) resolve to real entities. Without them those
     references are dropped rather than turned into a shared 「本法」 node.
     """
+    text = _normalise_sub_articles(text)
+
     citations: list[Citation] = []
     seen: set[str] = set()
+
+    def _add(entity_key: str, raw_text: str, relation_type: str) -> None:
+        dedup_key = f"{entity_key}:{relation_type}"
+        if dedup_key in seen:
+            return
+        seen.add(dedup_key)
+        citations.append(
+            Citation(
+                raw_text=raw_text,
+                entity_key=entity_key,
+                relation_type=relation_type,
+                confidence=1.0,
+                extracted_by="regex",
+            )
+        )
 
     for rule in _RULES:
         for match in rule.pattern.finditer(text):
             for entity_key in _entity_keys(match, rule, parent_key=parent_key, self_key=self_key):
-                dedup_key = f"{entity_key}:{rule.relation_type}"
-                if dedup_key in seen:
-                    continue
-                seen.add(dedup_key)
+                _add(entity_key, match.group(0).strip(), rule.relation_type)
 
-                citations.append(
-                    Citation(
-                        raw_text=match.group(0).strip(),
-                        entity_key=entity_key,
-                        relation_type=rule.relation_type,
-                        confidence=1.0,
-                        extracted_by="regex",
-                    )
-                )
+                if "#" in entity_key:
+                    law_name = entity_key.split("#", 1)[0]
+                    for extra_key, extra_raw in _article_run_keys(text, law_name, match.end()):
+                        _add(extra_key, extra_raw, rule.relation_type)
 
     return citations
 
@@ -337,13 +381,20 @@ def _entity_key(
 
 
 def _article_key(law_name: str | None, article: str) -> str:
-    """`所得稅法` + `十四` -> `所得稅法#14`."""
+    """`所得稅法` + `十四` -> `所得稅法#14`.
+
+    Sub-articles normalise to a hyphen, not 之: the TW normalizer mints
+    `所得稅法#66-9` from 「第 66-9 條」(`tw_law_json._build_node_key`), so a
+    citation emitting `66之9` would name a node nothing else can reach —
+    and 所得稅法第66條之9 (未分配盈餘) is exactly the kind of provision the
+    filing matrix cites.
+    """
     base = (law_name or "").split("#", 1)[0]
     number = re.sub(r"\s+", "", article)
-    # 第十四條之一 -> 14之1
+    # 第十四條之一 / 第14條之1 -> 14-1
     if "之" in number:
         head, _, tail = number.partition("之")
-        number = f"{to_arabic(head)}之{to_arabic(tail)}"
+        number = f"{to_arabic(head)}-{to_arabic(tail)}"
     else:
         number = to_arabic(number)
     return f"{base}#{number}"
