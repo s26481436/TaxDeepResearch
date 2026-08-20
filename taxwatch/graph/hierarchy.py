@@ -203,6 +203,14 @@ def promote_declared_authority(
     from taxwatch.graph.relations import upsert_relation
     from taxwatch.graph.resolver import normalize_entity_key
 
+    # A statute declares no authority above itself. Scanning its opening
+    # provisions only picks up phrases the regex reads as law names —
+    # 所得稅法 mentions 「依所得來源國稅法規定」, which is 所得來源國 followed by
+    # 稅法, not a statute anyone can fetch.
+    doc_type = getattr(document.doc_type, "value", str(document.doc_type))
+    if doc_type == "statute":
+        return []
+
     self_key = normalize_entity_key(doc_entity_key)
     relations: list[LegalRelation] = []
     seen: set[str] = set()

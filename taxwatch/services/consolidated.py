@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from taxwatch.graph.hierarchy import get_family
 from taxwatch.graph.resolver import normalize_entity_key
 from taxwatch.models import (
+    DocType,
     Document,
     LegalEntity,
     LegalRelation,
@@ -193,6 +194,14 @@ def _find_root(session: Session, doc: Document, doc_key: str) -> tuple[Document,
     which callers must not confuse.
     """
     from taxwatch.graph.hierarchy import derive_parent_key
+
+    # A statute is the root by definition. Walking up from one only ever finds
+    # a phrase the citation regex mistook for a law: 所得稅法 says 「應依所得
+    # 來源國稅法規定繳納之所得稅」, which mints 所得來源國稅法 — 所得來源國 plus
+    # 稅法 — and files the statute as its child. The extraction then refuses to
+    # run because that "parent" can never be fetched.
+    if doc.doc_type == DocType.STATUTE:
+        return doc, doc_key, None
 
     visited: set[str] = {doc_key}
     current_doc, current_key = doc, doc_key
