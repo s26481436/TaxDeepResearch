@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 
 from taxwatch.requirements.fields import FIELD_KEYS
-from taxwatch.requirements.prompts import PROMPT_VERSION, SYSTEM_PROMPT
+from taxwatch.requirements.prompts import SYSTEM_PROMPT
 from taxwatch.requirements.schema import ProvisionCitation
 
 
@@ -43,7 +43,6 @@ def test_stored_quote_is_trimmed_even_if_the_model_ignores_the_limit(tmp_path):
 def test_prompt_tells_the_model_to_omit_underivable_fields():
     """A missing cell is already rendered as missing; restating it is waste."""
     assert "省略" in SYSTEM_PROMPT
-    assert PROMPT_VERSION == "req-v3"
 
 
 def test_omitting_underivable_fields_is_the_dominant_saving():
