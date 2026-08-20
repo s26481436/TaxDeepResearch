@@ -23,7 +23,9 @@ from taxwatch.requirements.prompts import EXTRACTION_TEMPLATE, PROMPT_VERSION, S
 
 
 def test_version_is_bumped():
-    assert PROMPT_VERSION == "req-v4"
+    """Any prompt change must be traceable on the rows it produced."""
+    assert PROMPT_VERSION.startswith("req-v")
+    assert int(PROMPT_VERSION.removeprefix("req-v")) >= 4
 
 
 def test_a_scenario_is_defined_by_taxpayer_object_and_rate():

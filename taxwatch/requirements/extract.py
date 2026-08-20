@@ -146,6 +146,15 @@ def extract_for_tax(
         "results": [],
     }
 
+    # Accumulated across documents, not just across batches within one. Each
+    # batch otherwise invents its own version of the same scenario, annotated
+    # with whatever provisions it happened to see:
+    #   營利事業一般所得稅申報（含存貨估價、成本認列…）
+    #   營利事業一般所得稅申報（含附贈、分期付款、工程…）
+    # and provisions that should have been folded into an existing row become
+    # rows of their own, because the model cannot fold into what it cannot see.
+    known_scenarios: list[tuple[str, str]] = []
+
     for doc in docs:
         try:
             stat = extract_for_document(
@@ -155,6 +164,7 @@ def extract_for_tax(
                 tax_key=tax_key,
                 dry_run=dry_run,
                 allow_child=allow_child,
+                known_scenarios=known_scenarios,
             )
             overall_stats["results"].append(stat)
             overall_stats["requirements"] += stat.get("requirements", 0)
@@ -179,6 +189,7 @@ def extract_for_document(
     tax_key: str | None = None,
     dry_run: bool = False,
     allow_child: bool = False,
+    known_scenarios: list[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Extract 申報規範 for one statute and everything implementing it.
 
@@ -235,6 +246,9 @@ def extract_for_document(
 
     inter_batch_delay = get_settings().llm_inter_batch_delay
 
+    if known_scenarios is None:
+        known_scenarios = []
+
     # Work stack rather than a plain loop: a batch whose output overran the
     # token budget is split in half and both halves pushed back. Asking for
     # more output instead would lengthen the generation, which is precisely
@@ -255,6 +269,7 @@ def extract_for_document(
 
         prompt = EXTRACTION_TEMPLATE.format(
             tax_name=tax_name,
+            known_scenarios_section=_known_scenarios_section(known_scenarios),
             field_definitions=field_defs,
             provisions=_group_text(group),
         )
@@ -302,6 +317,13 @@ def extract_for_document(
 
         all_requirements.extend(result.requirements)
         all_unresolved.extend(result.unresolved)
+
+        seen = {(s, r) for s, r in known_scenarios}
+        for row in result.requirements:
+            identity = ((row.scenario or "").strip(), (row.taxpayer_role or "").strip())
+            if identity[0] and identity not in seen:
+                seen.add(identity)
+                known_scenarios.append(identity)
 
     child_titles = [c["title"] for c in view.get("child_documents", [])]
     stats: dict[str, Any] = {
@@ -417,6 +439,32 @@ def _render_batches(view: dict[str, Any]) -> list[list[tuple[str, set[str]]]]:
         batches.append(current_group)
 
     return batches
+
+
+# Enough to steer wording without crowding out the provisions themselves. The
+# list is ordered by first sighting, so the oldest — and most established —
+# scenarios survive the cut.
+_MAX_KNOWN_SCENARIOS = 60
+
+
+def _known_scenarios_section(known: list[tuple[str, str]]) -> str:
+    if not known:
+        return ""
+    shown = known[:_MAX_KNOWN_SCENARIOS]
+    lines = "\n".join(f"- {scenario}｜{role}" for scenario, role in shown)
+    truncated = (
+        f"\n（清單已截斷，另有 {len(known) - len(shown)} 個情境未列出）"
+        if len(known) > len(shown)
+        else ""
+    )
+    return (
+        "\n## 前面批次已識別的情境\n\n"
+        "以下情境已經整理過。本批條文若屬於其中任何一個，"
+        "**必須逐字沿用該情境的 scenario 與 taxpayer_role**，把本批條文的內容"
+        "填進它的欄位，不要另創說法、不要新增一列。\n"
+        "只有本批條文確實構成清單以外的新課稅情境時，才新增。\n\n"
+        f"{lines}{truncated}\n"
+    )
 
 
 def _group_text(group: list[tuple[str, set[str]]]) -> str:
