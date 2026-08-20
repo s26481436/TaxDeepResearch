@@ -52,6 +52,10 @@ logger = logging.getLogger(__name__)
 # lean on the gateway less.
 _MAX_PROVISION_CHARS = 60_000
 
+# A quote exists to locate the passage inside an article, not to reproduce it.
+# The full text is already in the database under the same node_key.
+_MAX_QUOTE_CHARS = 30
+
 
 def _batch_chars() -> int:
     from taxwatch.config import get_settings
@@ -546,8 +550,13 @@ def _verify_citations(citations: list[Any], allowed_nodes: set[str]) -> tuple[li
         kept.append(
             {
                 "node_key": node_key,
-                "title": (citation.title or "").strip(),
-                "quote": (citation.quote or "").strip(),
+                # Derived, not asked for: the model would otherwise re-emit the
+                # law's name for every cited cell of every row.
+                "title": node_key.split("#", 1)[0],
+                # Trimmed on the way in as well as requested in the schema — a
+                # model that ignores the limit must not be able to inflate the
+                # stored row either.
+                "quote": (getattr(citation, "quote", "") or "").strip()[:_MAX_QUOTE_CHARS],
             }
         )
     return kept, dropped
