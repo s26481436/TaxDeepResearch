@@ -205,7 +205,7 @@ def _find_root(session: Session, doc: Document, doc_key: str) -> tuple[Document,
         parent_key = derive_parent_key(current_key)
 
         if parents:
-            parent_entity = parents[0]
+            parent_entity = _closest_parent(parents, current_doc.title)
             parent_doc = _document_for_key(session, parent_entity.entity_key)
             if parent_doc is not None and parent_entity.entity_key not in visited:
                 visited.add(parent_entity.entity_key)
@@ -224,6 +224,38 @@ def _find_root(session: Session, doc: Document, doc_key: str) -> tuple[Document,
         break
 
     return current_doc, current_key, None
+
+
+# Suffixes trimmed before comparing a parent's name against a child's title:
+# 所得稅法 and 營利事業所得稅查核準則 share 所得稅, not 所得稅法.
+_NAME_SUFFIXES = ("法", "條例", "条例", "準則", "准则", "辦法", "办法", "規則", "规则", "細則", "细则")
+
+
+def _closest_parent(parents: list[LegalEntity], child_title: str):
+    """Pick which of several declared authorities is the real 母法.
+
+    A 依據 clause often names more than one law — 營利事業所得稅查核準則 cites both
+    所得稅法 and 稅捐稽徵法 — and taking whichever edge was written first rooted
+    the whole family on 稅捐稽徵法, so an extraction for 營利事業所得稅 returned
+    核課期間 and 滯納金 rows. Prefer the parent whose name the child's own title
+    carries: a 查核準則 of 所得稅 is named after the statute it implements, while
+    the general collection act it also cites is not.
+    """
+    if len(parents) == 1:
+        return parents[0]
+
+    def affinity(entity: LegalEntity) -> tuple[int, int]:
+        name = entity.entity_key.split("#", 1)[0]
+        stem = name
+        for suffix in _NAME_SUFFIXES:
+            if stem.endswith(suffix) and len(stem) > len(suffix) + 1:
+                stem = stem[: -len(suffix)]
+                break
+        # Longer shared stem wins; a tie falls back to the longer full name,
+        # which is the more specific statute.
+        return (len(stem) if stem and stem in child_title else 0, len(name))
+
+    return max(parents, key=affinity)
 
 
 def _supplements_by_article(session: Session, doc_key: str) -> dict[str, list[Supplement]]:
