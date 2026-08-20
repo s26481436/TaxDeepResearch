@@ -332,10 +332,19 @@ def extract_for_document(
         "source_document": view["title"],
         "child_documents": child_titles,
         "missing_parent": missing_parent,
+        # Distinct identities, not model output rows. With the shared scenario
+        # list working as intended, ten batches all fold into 營利事業（總機構在
+        # 境內）—— reporting ten would describe the batching, not the matrix.
+        "requirements_emitted": len(all_requirements),
         "batches": len(batches),
         "failed_batches": failed_batches,
         "provisions_supplied": len(all_allowed_nodes),
-        "requirements": len(all_requirements),
+        "requirements": len(
+            {
+                ((r.scenario or "").strip(), (r.taxpayer_role or "").strip())
+                for r in all_requirements
+            }
+        ),
         "unresolved": all_unresolved,
         "truncated_nodes": 0,
         "dropped_citations": 0,
@@ -349,11 +358,18 @@ def extract_for_document(
         )
 
     if dry_run:
-        stats["preview"] = [
-            {"scenario": r.scenario, "taxpayer_role": r.taxpayer_role} for r in all_requirements
-        ]
+        seen_preview: set[tuple[str, str]] = set()
+        preview: list[dict[str, Any]] = []
+        for r in all_requirements:
+            identity = ((r.scenario or "").strip(), (r.taxpayer_role or "").strip())
+            if identity in seen_preview:
+                continue
+            seen_preview.add(identity)
+            preview.append({"scenario": identity[0], "taxpayer_role": identity[1]})
+        stats["preview"] = preview
         return stats
 
+    written_this_run: set[tuple[int, str]] = set()
     for row in all_requirements:
         dropped, uncited = _upsert_requirement(
             session,
@@ -363,6 +379,7 @@ def extract_for_document(
             document=document,
             allowed_nodes=all_allowed_nodes,
             model=client.model,
+            written_this_run=written_this_run,
         )
         stats["dropped_citations"] += dropped
         stats["uncited_fields"] += uncited
@@ -523,6 +540,7 @@ def _upsert_requirement(
     document: Document | None,
     allowed_nodes: set[str],
     model: str,
+    written_this_run: set[tuple[int, str]] | None = None,
 ) -> tuple[int, int]:
     scenario = (row.scenario or "").strip() or "未分類情境"
     taxpayer_role = (row.taxpayer_role or "").strip()
@@ -552,6 +570,9 @@ def _upsert_requirement(
     if document is not None:
         requirement.source_document_id = document.id
     session.flush()
+
+    if written_this_run is None:
+        written_this_run = set()
 
     existing = {f.field_key: f for f in requirement.fields}
     dropped = 0
@@ -601,17 +622,64 @@ def _upsert_requirement(
             session.add(current)
             existing[field_out.field_key] = current
 
-        current.value = field_out.value.strip()
-        current.citations = citations
-        current.confidence = confidence
+        new_value = field_out.value.strip()
+        slot = (requirement.id, field_out.field_key)
+
+        if slot in written_this_run and current.value:
+            # Several batches now legitimately write the same cell: the shared
+            # scenario list makes them fold their provisions into one row, and
+            # 伙食費, 棧儲費 and 佣金 each arrive in a different batch. Replacing
+            # would keep only whichever batch happened to run last, which is
+            # exactly the content the folding was meant to preserve.
+            merged, conflicted = _merge_cell(current.value, new_value)
+            current.value = merged
+            current.citations = _merge_citations(current.citations, citations)
+            current.confidence = max(current.confidence, confidence)
+            if conflicted:
+                current.needs_review = True
+                current.review_reason = "多個批次給出不同內容，已合併待人工確認"
+        else:
+            current.value = new_value
+            current.citations = citations
+            current.confidence = confidence
+            # An uncited cell is the model's own words; make a reviewer look at it.
+            current.needs_review = not citations
+            current.review_reason = "無條文依據，需人工確認" if not citations else ""
+
+        written_this_run.add(slot)
         current.source = FieldSource.LLM
-        # An uncited cell is the model's own words; make a reviewer look at it.
-        current.needs_review = not citations
-        current.review_reason = "無條文依據，需人工確認" if not citations else ""
         current.stale_change_id = None
 
     session.flush()
     return dropped, uncited
+
+
+def _merge_cell(existing: str, incoming: str) -> tuple[str, bool]:
+    """Combine two batches' answers for one cell.
+
+    Returns the merged text and whether the two said different things — a
+    second 稅率 that disagrees with the first is a conflict a reviewer must
+    settle, while a second 扣除項目 is simply more of the same list.
+    """
+    existing = existing.strip()
+    incoming = incoming.strip()
+    if not incoming or incoming in existing:
+        return existing, False
+    if not existing:
+        return incoming, False
+    return f"{existing}\n{incoming}", True
+
+
+def _merge_citations(existing: list, incoming: list) -> list:
+    """Union by node_key, keeping the order the provisions were first cited."""
+    merged = list(existing or [])
+    seen = {c.get("node_key") for c in merged if isinstance(c, dict)}
+    for citation in incoming or []:
+        key = citation.get("node_key") if isinstance(citation, dict) else None
+        if key and key not in seen:
+            seen.add(key)
+            merged.append(citation)
+    return merged
 
 
 def _verify_citations(citations: list[Any], allowed_nodes: set[str]) -> tuple[list[dict], int]:
