@@ -63,15 +63,42 @@ def test_first_batch_is_given_no_list():
 
 def test_section_names_the_scenarios_and_forbids_new_wording():
     section = ext._known_scenarios_section([("一般貨物銷售", "一般納稅人")])
-    assert "一般貨物銷售｜一般納稅人" in section
+    assert "一般貨物銷售" in section
+    assert "一般納稅人" in section
     assert "逐字沿用" in section
     assert "不要另創說法" in section
+
+
+def test_section_keeps_the_two_fields_apart():
+    """A joined 「scenario｜role」 line reads as one value and gets copied whole.
+
+    Seen in a real run: 「個人（中華民國境內居住者）綜合所得稅申報｜個人 - 綜合
+    所得稅」 arrived as a brand new scenario, so the list grew instead of
+    converging — 132 rows became 173.
+    """
+    section = ext._known_scenarios_section([("一般貨物銷售", "一般納稅人")])
+
+    assert "一般貨物銷售｜一般納稅人" not in section
+    assert "scenario: 一般貨物銷售" in section
+    assert "taxpayer_role: 一般納稅人" in section
+    assert "不要把它們串成一個字串" in section
+
+
+@pytest.mark.parametrize("separator", ["｜", "|"])
+def test_an_echoed_role_is_trimmed_back_off(separator):
+    """Belt and braces: a model that concatenates anyway must not mint a new row."""
+    echoed = f"一般貨物銷售{separator}一般納稅人"
+    assert ext._strip_echoed_role(echoed) == "一般貨物銷售"
+
+
+def test_an_ordinary_scenario_is_untouched():
+    assert ext._strip_echoed_role(" 一般貨物銷售 ") == "一般貨物銷售"
 
 
 def test_section_is_capped_and_says_so():
     known = [(f"情境{i}", "角色") for i in range(ext._MAX_KNOWN_SCENARIOS + 5)]
     section = ext._known_scenarios_section(known)
-    assert section.count("｜") == ext._MAX_KNOWN_SCENARIOS
+    assert section.count("scenario: ") == ext._MAX_KNOWN_SCENARIOS
     assert "清單已截斷" in section
 
 
