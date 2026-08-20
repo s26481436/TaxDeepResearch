@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-PROMPT_VERSION = "req-v5"
+PROMPT_VERSION = "req-v6"
 
 SYSTEM_PROMPT = """你是稅務合規分析師，負責把法規條文整理成企業可直接依循的申報規範。
 
@@ -45,6 +45,7 @@ SYSTEM_PROMPT = """你是稅務合規分析師，負責把法規條文整理成�
 EXTRACTION_TEMPLATE = """## 任務
 
 從以下法規條文中，整理出「{tax_name}」的申報規範。
+{dimensions_section}
 {known_scenarios_section}
 ## 欄位定義
 
@@ -67,8 +68,12 @@ node_key 標示在每條之前，引用時必須逐字使用。
 {{
   "requirements": [
     {{
-      "scenario": "課稅情境描述",
-      "taxpayer_role": "納稅人身分，例如一般納稅人 - 一般計稅",
+      "scenario": "課稅情境描述（人類可讀）",
+      "taxpayer_role": "納稅人身分（人類可讀），例如一般納稅人 - 一般計稅",
+      "taxpayer_class": "受控納稅主體類別鍵（若有提供詞彙表請務必選擇其一）",
+      "tax_scheme": "受控計稅／申報方式鍵（若有提供詞彙表請務必選擇其一）",
+      "subject_matter": "受控課稅標的鍵（若有提供詞彙表請務必選擇其一）",
+      "scenario_key": "受控情境細分鍵（若有提供詞彙表請務必選擇其一）",
       "fields": [
         {{
           "field_key": "上述欄位鍵之一",
@@ -91,9 +96,10 @@ node_key 標示在每條之前，引用時必須逐字使用。
 ## 輸出要求
 
 - 依課稅情境與納稅人身分拆分成多個規範列，放在 `requirements` 陣列中
+- **維度欄位才是身分**：若有提供受控維度詞彙表，請務必精確填寫 `taxpayer_class`、`tax_scheme`、`subject_matter`、`scenario_key`；`scenario` 與 `taxpayer_role` 為輔助人類閱讀之描述
 - **費用認列、稽徵程序、罰則等條文不另成列**，併入既有情境的
   `deductions` / `administration` / `formula` 欄位（見系統指示第 5 點）
-- 每列包含 `scenario`、`taxpayer_role`、`fields` 三個欄位
+- 每列包含 `scenario`、`taxpayer_role`、四個受控維度欄位與 `fields`
 - `fields` 陣列中的每個物件包含 `field_key`、`value`、`citations`、`confidence`
 - `citations` 陣列中的每個物件只包含 `node_key` 與 `quote`
 - `quote` 限 20 字以內，僅供定位條文段落；系統已持有條文全文，不要抄錄整條
@@ -108,3 +114,37 @@ def format_field_definitions() -> str:
     return "\n".join(
         f"- `{spec.key}`（{spec.label_zh}）：{spec.description}" for spec in FIELD_SPECS
     )
+
+
+def format_dimensions_section(country: str, tax_key: str) -> str:
+    from taxwatch.requirements.dimensions import get_dimensions_vocabulary
+
+    vocab = get_dimensions_vocabulary(country, tax_key)
+    if not vocab:
+        return ""
+
+    lines = [
+        "## 受控身分維度詞彙表",
+        "",
+        "為了使申報規範身分穩定，請為每個課稅情境從以下受控詞彙中為四個維度各選取一個最適的值：",
+        "（`taxpayer_class`、`tax_scheme`、`subject_matter`、`scenario_key` 是決定情境身分的受控鍵，請精確填寫；`scenario` 與 `taxpayer_role` 則是供人閱讀的補充描述文字）",
+        "",
+    ]
+
+    labels = {
+        "taxpayer_class": "納稅主體類別 (`taxpayer_class`)",
+        "tax_scheme": "計稅／申報方式 (`tax_scheme`)",
+        "subject_matter": "課稅標的 (`subject_matter`)",
+        "scenario_key": "情境細分鍵 (`scenario_key`)",
+    }
+
+    for dim_name, dim_label in labels.items():
+        items = vocab.get(dim_name, ())
+        if items:
+            lines.append(f"### {dim_label}")
+            for item in items:
+                desc = f" — {item.description}" if item.description else ""
+                lines.append(f"- `{item.key}`: {item.label_zh}{desc}")
+            lines.append("")
+
+    return "\n".join(lines)
