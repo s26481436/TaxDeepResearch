@@ -394,11 +394,24 @@ def extract_requirements(
         typer.echo(f"⚠ 捨棄 {stats['dropped_citations']} 筆指向不存在條文的引用")
     if stats["uncited_fields"]:
         typer.echo(f"⚠ {stats['uncited_fields']} 個欄位無條文依據，已標記待覆核")
+    if stats.get("unknown_dimension_values"):
+        typer.echo(f"⚠ 偵測到 {len(stats['unknown_dimension_values'])} 個未知的身分維度值（已標記待覆核）：")
+        for item in stats["unknown_dimension_values"]:
+            typer.echo(f"  · {item}")
+    if stats.get("incomplete_dimensions"):
+        typer.echo(f"⚠ 偵測到 {len(stats['incomplete_dimensions'])} 個缺漏的身分維度值（已標記待覆核）：")
+        for item in stats["incomplete_dimensions"]:
+            typer.echo(f"  · {item}")
     for item in stats["unresolved"]:
         typer.echo(f"  · 待人工補充：{item}")
     if dry_run:
         for row in stats.get("preview", []):
-            typer.echo(f"  - {row['scenario']} / {row['taxpayer_role'] or '（未分身分）'}")
+            id_key = row.get("identity_key")
+            if id_key:
+                typer.echo(f"  - {id_key}")
+                typer.echo(f"      {row['scenario']} / {row['taxpayer_role'] or '（未分身分）'}")
+            else:
+                typer.echo(f"  - {row['scenario']} / {row['taxpayer_role'] or '（未分身分）'}")
 
 
 @app.command()

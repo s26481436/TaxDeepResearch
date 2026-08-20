@@ -466,3 +466,62 @@ def test_backfill_identity_keys_script(session):
     stats_rerun = backfill_identity_keys(session, dry_run=False)
     assert stats_rerun["updated"] == 0
     assert stats_rerun["skipped_already_set"] == 2
+
+
+def test_cli_extract_requirements_dry_run_and_unknown_dimensions(session, tw_law, monkeypatch):
+    """驗證 CLI 執行 extract-requirements 的 --dry-run 格式與未知維度值警示."""
+    from typer.testing import CliRunner
+
+    from taxwatch.cli import app
+    from taxwatch.requirements.schema import (
+        ProvisionCitation,
+        RequirementFieldOut,
+        RequirementOut,
+        RequirementSetOut,
+    )
+
+    runner = CliRunner()
+
+    row1 = RequirementOut(
+        scenario="個人（境內居住者）綜所稅申報",
+        taxpayer_role="個人 - 納稅義務人",
+        taxpayer_class="resident_individual",
+        tax_scheme="annual_filing",
+        subject_matter="general_income",
+        scenario_key="standard",
+        fields=[
+            RequirementFieldOut(
+                field_key="rate",
+                value="5% - 40%",
+                citations=[ProvisionCitation(node_key="所得稅法#2", quote="所得稅之納稅義務人")],
+                confidence=1.0,
+            )
+        ],
+    )
+
+    mock_client = MagicMock()
+    mock_client.generate_structured.return_value = RequirementSetOut(
+        requirements=[row1],
+        unresolved=[],
+    )
+    mock_client.model = "mock-model"
+    monkeypatch.setattr("taxwatch.requirements.extract.get_llm_client", lambda: mock_client)
+    monkeypatch.setattr("taxwatch.db.get_session", lambda: session)
+    monkeypatch.setattr("taxwatch.db.init_db", lambda: None)
+    monkeypatch.setattr(session, "close", lambda: None)
+
+    result = runner.invoke(
+        app,
+        [
+            "extract-requirements",
+            "tw-income-tax-act",
+            "--country",
+            "TW",
+            "--tax-key",
+            "tw_income",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "resident_individual|annual_filing|general_income|standard" in result.output
+    assert "個人（境內居住者）綜所稅申報 / 個人 - 納稅義務人" in result.output
