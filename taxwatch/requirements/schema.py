@@ -12,14 +12,24 @@ from pydantic import BaseModel, Field
 
 
 class ProvisionCitation(BaseModel):
+    """What the model must say to point at a provision.
+
+    Deliberately minimal. Every token here is paid once per cell per row, and
+    the matrix has eleven cells — a citation that echoes back text the caller
+    already holds is the dominant cost of an extraction. The law's name is
+    `node_key` up to the `#`, so asking for it separately buys nothing.
+    """
+
     node_key: str = Field(
         default="",
         description="條文節點鍵，例如 增值税法#32。必須是輸入資料中實際出現過的節點鍵。",
     )
-    title: str = Field(default="", description="法規名稱")
     quote: str = Field(
         default="",
-        description="支持此欄位內容的條文原文片段（逐字引用，不要改寫）",
+        description=(
+            "條文原文的**開頭 20 字以內**，用於定位是條文的哪一段。"
+            "不要抄錄整條，系統已持有全文。"
+        ),
     )
 
 
