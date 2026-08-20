@@ -380,6 +380,10 @@ def extract_for_document(
         "unresolved": all_unresolved,
         "unknown_dimension_values": [],
         "incomplete_dimensions": [],
+        # How many rows fell back to text identity. A run where this equals the
+        # row count produced nothing this feature can use, and that must be
+        # visible without counting the printed lines.
+        "rows_without_identity": 0,
         "truncated_nodes": 0,
         "dropped_citations": 0,
         "uncited_fields": 0,
@@ -390,6 +394,20 @@ def extract_for_document(
         raise LLMBatchFailure(
             f"all {len(batches)} batch(es) failed for {view['title']}: {details}"
         )
+
+    # Populated before the dry-run exit: these say *why* a row has no
+    # identity_key, and --dry-run is where that question gets asked. Reporting
+    # them only on a real write left the verification path showing neither the
+    # key nor a reason.
+    stats["rows_without_identity"] = sum(
+        1 for item in processed_rows if not item["identity_key"]
+    )
+    for item in processed_rows:
+        row_label = (item["row"].scenario or "").strip()
+        for dim_name, value in item["unknowns"]:
+            stats["unknown_dimension_values"].append(f"{dim_name}：{value}（列：{row_label}）")
+        for dim_name in item["missing"]:
+            stats["incomplete_dimensions"].append(f"{dim_name}：缺漏（列：{row_label}）")
 
     if dry_run:
         seen_preview: set[Any] = set()
@@ -429,14 +447,6 @@ def extract_for_document(
         )
         stats["dropped_citations"] += dropped
         stats["uncited_fields"] += uncited
-        for dim_name, val in unknowns:
-            stats["unknown_dimension_values"].append(
-                f"{dim_name}：{val}（列：{row.scenario}）"
-            )
-        for dim_name in missing:
-            stats["incomplete_dimensions"].append(
-                f"{dim_name}：缺漏（列：{row.scenario}）"
-            )
 
     session.commit()
     if failed_batches:

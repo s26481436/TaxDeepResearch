@@ -394,6 +394,14 @@ def extract_requirements(
         typer.echo(f"⚠ 捨棄 {stats['dropped_citations']} 筆指向不存在條文的引用")
     if stats["uncited_fields"]:
         typer.echo(f"⚠ {stats['uncited_fields']} 個欄位無條文依據，已標記待覆核")
+    without = stats.get("rows_without_identity", 0)
+    if without:
+        emitted = stats.get("requirements_emitted", 0)
+        typer.echo(
+            f"\n⚠ {without}/{emitted} 列沒有受控身分（identity_key），"
+            "將以情境描述文字作為身分。"
+            "\n   描述文字每次抽取都會變動，這些列在重跑時不會被更新，而會新增為另一列。"
+        )
     if stats.get("unknown_dimension_values"):
         typer.echo(f"⚠ 偵測到 {len(stats['unknown_dimension_values'])} 個未知的身分維度值（已標記待覆核）：")
         for item in stats["unknown_dimension_values"]:
