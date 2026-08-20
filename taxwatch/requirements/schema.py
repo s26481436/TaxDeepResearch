@@ -49,10 +49,26 @@ class RequirementFieldOut(BaseModel):
 
 
 class RequirementOut(BaseModel):
-    scenario: str = Field(description="子項目／課稅情境，例如「一般貨物及勞務銷售」")
+    scenario: str = Field(description="子項目／課稅情境（人類可讀描述），例如「一般貨物及勞務銷售」")
     taxpayer_role: str = Field(
         default="",
-        description="納稅／扣繳／代徵角色，例如「一般納稅人 - 一般計稅」",
+        description="納稅／扣繳／代徵角色（人類可讀描述），例如「一般納稅人 - 一般計稅」",
+    )
+    taxpayer_class: str = Field(
+        default="",
+        description="受控納稅主體類別（例如 resident_individual），若有提供詞彙表請務必選擇其一",
+    )
+    tax_scheme: str = Field(
+        default="",
+        description="受控計稅／申報方式（例如 annual_filing），若有提供詞彙表請務必選擇其一",
+    )
+    subject_matter: str = Field(
+        default="",
+        description="受控課稅標的（例如 general_income），若有提供詞彙表請務必選擇其一",
+    )
+    scenario_key: str = Field(
+        default="",
+        description="受控情境細分鍵（例如 standard），若有提供詞彙表請務必選擇其一",
     )
     fields: list[RequirementFieldOut] = Field(default_factory=list)
 

@@ -267,8 +267,11 @@ def extract_for_document(
         if batch_seq > 1 and inter_batch_delay > 0:
             time.sleep(inter_batch_delay)
 
+        from taxwatch.requirements.prompts import format_dimensions_section
+
         prompt = EXTRACTION_TEMPLATE.format(
             tax_name=tax_name,
+            dimensions_section=format_dimensions_section(resolved_country, resolved_tax_key),
             known_scenarios_section=_known_scenarios_section(known_scenarios),
             field_definitions=field_defs,
             provisions=_group_text(group),
