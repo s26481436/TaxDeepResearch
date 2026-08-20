@@ -329,6 +329,40 @@ def extract_for_document(
                 seen.add(identity)
                 known_scenarios.append(identity)
 
+    from taxwatch.requirements.dimensions import (
+        compute_identity_key,
+        validate_dimensions,
+    )
+
+    # Pre-validate dimensions and compute identity_key for all returned rows
+    processed_rows: list[dict[str, Any]] = []
+    for r in all_requirements:
+        raw_dims = {
+            "taxpayer_class": getattr(r, "taxpayer_class", ""),
+            "tax_scheme": getattr(r, "tax_scheme", ""),
+            "subject_matter": getattr(r, "subject_matter", ""),
+            "scenario_key": getattr(r, "scenario_key", ""),
+        }
+        valid_dims, unknowns, missing = validate_dimensions(
+            resolved_country, resolved_tax_key, raw_dims
+        )
+        id_key = compute_identity_key(valid_dims)
+        identity = (
+            id_key
+            if id_key
+            else ((r.scenario or "").strip(), (r.taxpayer_role or "").strip())
+        )
+        processed_rows.append(
+            {
+                "row": r,
+                "valid_dims": valid_dims,
+                "identity_key": id_key,
+                "identity": identity,
+                "unknowns": unknowns,
+                "missing": missing,
+            }
+        )
+
     child_titles = [c["title"] for c in view.get("child_documents", [])]
     stats: dict[str, Any] = {
         "tax_key": resolved_tax_key,
@@ -342,13 +376,10 @@ def extract_for_document(
         "batches": len(batches),
         "failed_batches": failed_batches,
         "provisions_supplied": len(all_allowed_nodes),
-        "requirements": len(
-            {
-                ((r.scenario or "").strip(), (r.taxpayer_role or "").strip())
-                for r in all_requirements
-            }
-        ),
+        "requirements": len({item["identity"] for item in processed_rows}),
         "unresolved": all_unresolved,
+        "unknown_dimension_values": [],
+        "incomplete_dimensions": [],
         "truncated_nodes": 0,
         "dropped_citations": 0,
         "uncited_fields": 0,
@@ -361,20 +392,28 @@ def extract_for_document(
         )
 
     if dry_run:
-        seen_preview: set[tuple[str, str]] = set()
+        seen_preview: set[Any] = set()
         preview: list[dict[str, Any]] = []
-        for r in all_requirements:
-            identity = ((r.scenario or "").strip(), (r.taxpayer_role or "").strip())
+        for item in processed_rows:
+            identity = item["identity"]
             if identity in seen_preview:
                 continue
             seen_preview.add(identity)
-            preview.append({"scenario": identity[0], "taxpayer_role": identity[1]})
+            r = item["row"]
+            preview.append(
+                {
+                    "identity_key": item["identity_key"],
+                    "scenario": (r.scenario or "").strip(),
+                    "taxpayer_role": (r.taxpayer_role or "").strip(),
+                }
+            )
         stats["preview"] = preview
         return stats
 
     written_this_run: set[tuple[int, str]] = set()
-    for row in all_requirements:
-        dropped, uncited = _upsert_requirement(
+    for item in processed_rows:
+        row = item["row"]
+        dropped, uncited, unknowns, missing = _upsert_requirement(
             session,
             row,
             country=resolved_country,
@@ -383,9 +422,21 @@ def extract_for_document(
             allowed_nodes=all_allowed_nodes,
             model=client.model,
             written_this_run=written_this_run,
+            valid_dims=item["valid_dims"],
+            identity_key=item["identity_key"],
+            unknowns=item["unknowns"],
+            missing=item["missing"],
         )
         stats["dropped_citations"] += dropped
         stats["uncited_fields"] += uncited
+        for dim_name, val in unknowns:
+            stats["unknown_dimension_values"].append(
+                f"{dim_name}：{val}（列：{row.scenario}）"
+            )
+        for dim_name in missing:
+            stats["incomplete_dimensions"].append(
+                f"{dim_name}：缺漏（列：{row.scenario}）"
+            )
 
     session.commit()
     if failed_batches:
@@ -544,28 +595,72 @@ def _upsert_requirement(
     allowed_nodes: set[str],
     model: str,
     written_this_run: set[tuple[int, str]] | None = None,
-) -> tuple[int, int]:
+    valid_dims: dict[str, str] | None = None,
+    identity_key: str | None = None,
+    unknowns: list[tuple[str, str]] | None = None,
+    missing: list[str] | None = None,
+) -> tuple[int, int, list[tuple[str, str]], list[str]]:
+    from taxwatch.requirements.dimensions import (
+        compute_identity_key,
+        validate_dimensions,
+    )
+
     scenario = (row.scenario or "").strip() or "未分類情境"
     taxpayer_role = (row.taxpayer_role or "").strip()
 
-    requirement = (
-        session.query(TaxRequirement)
-        .filter_by(
-            country=country,
-            tax_key=tax_key,
-            scenario=scenario,
-            taxpayer_role=taxpayer_role,
+    if valid_dims is None or identity_key is None or unknowns is None or missing is None:
+        raw_dims = {
+            "taxpayer_class": getattr(row, "taxpayer_class", ""),
+            "tax_scheme": getattr(row, "tax_scheme", ""),
+            "subject_matter": getattr(row, "subject_matter", ""),
+            "scenario_key": getattr(row, "scenario_key", ""),
+        }
+        valid_dims, unknowns, missing = validate_dimensions(country, tax_key, raw_dims)
+        identity_key = compute_identity_key(valid_dims)
+
+    has_dimension_issues = bool(unknowns or missing)
+
+    requirement: TaxRequirement | None = None
+    if identity_key:
+        requirement = (
+            session.query(TaxRequirement)
+            .filter_by(
+                country=country,
+                tax_key=tax_key,
+                identity_key=identity_key,
+            )
+            .first()
         )
-        .first()
-    )
+
+    if requirement is None:
+        requirement = (
+            session.query(TaxRequirement)
+            .filter_by(
+                country=country,
+                tax_key=tax_key,
+                scenario=scenario,
+                taxpayer_role=taxpayer_role,
+            )
+            .first()
+        )
+
     if requirement is None:
         requirement = TaxRequirement(
             country=country,
             tax_key=tax_key,
             scenario=scenario,
             taxpayer_role=taxpayer_role,
+            identity_key=identity_key,
+            dimensions=valid_dims if identity_key else {},
         )
         session.add(requirement)
+    else:
+        # Update human-readable descriptions and identity key if present
+        requirement.scenario = scenario
+        requirement.taxpayer_role = taxpayer_role
+        if identity_key:
+            requirement.identity_key = identity_key
+            requirement.dimensions = valid_dims
 
     requirement.status = RequirementStatus.DRAFT
     requirement.model = model
@@ -653,8 +748,17 @@ def _upsert_requirement(
         current.source = FieldSource.LLM
         current.stale_change_id = None
 
+        if has_dimension_issues:
+            current.needs_review = True
+            issue_desc = []
+            if unknowns:
+                issue_desc.append("含未知的身分維度值")
+            if missing:
+                issue_desc.append("身分維度值缺漏")
+            current.review_reason = "、".join(issue_desc) if not current.review_reason else f"{current.review_reason}（{'、'.join(issue_desc)}）"
+
     session.flush()
-    return dropped, uncited
+    return dropped, uncited, unknowns, missing
 
 
 def _merge_cell(existing: str, incoming: str) -> tuple[str, bool]:
