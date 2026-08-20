@@ -320,6 +320,7 @@ def extract_for_document(
 
         seen = {(s, r) for s, r in known_scenarios}
         for row in result.requirements:
+            row.scenario = _strip_echoed_role(row.scenario)
             identity = ((row.scenario or "").strip(), (row.taxpayer_role or "").strip())
             if identity[0] and identity not in seen:
                 seen.add(identity)
@@ -447,11 +448,36 @@ def _render_batches(view: dict[str, Any]) -> list[list[tuple[str, set[str]]]]:
 _MAX_KNOWN_SCENARIOS = 60
 
 
+def _strip_echoed_role(scenario: str | None) -> str:
+    """Undo a scenario that swallowed the role from the known-scenarios list.
+
+    Belt and braces alongside the labelled format: a model that concatenates
+    anyway must not be able to mint 「情境｜角色」 as a fresh identity, because
+    that row then never matches the real one and the list grows instead of
+    converging.
+    """
+    text = (scenario or "").strip()
+    for separator in ("｜", "|"):
+        if separator in text:
+            head = text.split(separator, 1)[0].strip()
+            if head:
+                logger.warning("Scenario echoed its role back; trimming: %r", text)
+                return head
+    return text
+
+
 def _known_scenarios_section(known: list[tuple[str, str]]) -> str:
     if not known:
         return ""
     shown = known[:_MAX_KNOWN_SCENARIOS]
-    lines = "\n".join(f"- {scenario}｜{role}" for scenario, role in shown)
+    # Labelled fields on separate lines, not one joined string. A 「scenario｜role」
+    # line reads as a single value, and the model copied it verbatim into
+    # `scenario` — producing 「個人（境內居住者）綜合所得稅申報｜個人 - 綜合所得稅」
+    # as a brand new identity, which is the opposite of what the list is for.
+    lines = "\n\n".join(
+        f"{index}.\n   scenario: {scenario}\n   taxpayer_role: {role}"
+        for index, (scenario, role) in enumerate(shown, start=1)
+    )
     truncated = (
         f"\n（清單已截斷，另有 {len(known) - len(shown)} 個情境未列出）"
         if len(known) > len(shown)
@@ -460,8 +486,10 @@ def _known_scenarios_section(known: list[tuple[str, str]]) -> str:
     return (
         "\n## 前面批次已識別的情境\n\n"
         "以下情境已經整理過。本批條文若屬於其中任何一個，"
-        "**必須逐字沿用該情境的 scenario 與 taxpayer_role**，把本批條文的內容"
-        "填進它的欄位，不要另創說法、不要新增一列。\n"
+        "**必須逐字沿用該情境的 scenario 與 taxpayer_role 兩個欄位的值**，"
+        "把本批條文的內容填進它的欄位，不要另創說法、不要新增一列。\n"
+        "注意：scenario 與 taxpayer_role 是兩個獨立欄位，"
+        "**不要把它們串成一個字串**。\n"
         "只有本批條文確實構成清單以外的新課稅情境時，才新增。\n\n"
         f"{lines}{truncated}\n"
     )
