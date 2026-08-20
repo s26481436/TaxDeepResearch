@@ -42,7 +42,21 @@ class Citation:
 
 # --- TW patterns ---
 _LAW_SUFFIX = r"(?:法|條例|準則|辦法|規則|細則)"
-_LAW_NAME = rf"(?:[一-鿿]{{2,20}}{_LAW_SUFFIX})"
+# 第 is excluded from the body of a name so the match cannot run across an
+# article number into a second law. 「所得稅法第八十條第五項及稅捐稽徵法」 is
+# all CJK and ends in 法, so a permissive class swallows the lot and mints one
+# bogus statute named after two — which is how 營利事業所得稅查核準則 came to
+# sit under 稅捐稽徵法 instead of 所得稅法. Real statute names do not contain 第.
+# A law name may not run across the words that separate one citation from the
+# next. 「所得稅法第八十條第五項及稅捐稽徵法」 is all CJK and ends in 法, so a
+# permissive class swallows the lot and mints one bogus statute named after
+# two — which is how 營利事業所得稅查核準則 came to sit under 稅捐稽徵法 rather
+# than 所得稅法, and an entire extraction ran against the wrong corpus.
+# Excluding only 第: conjunctions cannot be excluded because real names contain
+# them — 遺產及贈與稅法 has both 及 and 與, and 中华人民共和国 has 和. The
+# fragment a conjunction leaves behind is trimmed in _clean_law_name instead.
+_CJK_NOT_DI = r"(?:(?!第)[一-鿿])"
+_LAW_NAME = rf"(?:{_CJK_NOT_DI}{{2,20}}{_LAW_SUFFIX})"
 _RULING_NUM = r"(?:台|臺)財稅(?:發|字)?第\s*[\d]+\s*號"
 _TW_ART = rf"(\d+(?:-\d+)?(?:之\d+)?|[{CN_NUMERAL_CHARS}]{{1,8}}(?:之[{CN_NUMERAL_CHARS}]{{1,3}})?)"
 
@@ -51,7 +65,7 @@ _TW_ART = rf"(\d+(?:-\d+)?(?:之\d+)?|[{CN_NUMERAL_CHARS}]{{1,8}}(?:之[{CN_NUME
 # are named that way; without them the 依据 clause naming their parent is
 # unparseable and the document floats free of the hierarchy.
 _CN_LAW_SUFFIX = r"(?:法|条例|细则|办法|规则|规定|规程|暂行条例|暂行办法|管理办法)"
-_CN_LAW_NAME = rf"(?:[一-鿿]{{2,20}}{_CN_LAW_SUFFIX})"
+_CN_LAW_NAME = rf"(?:{_CJK_NOT_DI}{{2,20}}{_CN_LAW_SUFFIX})"
 # 第28条 or 第二十八条 — CN statutes overwhelmingly use the latter.
 _CN_ART = rf"(\d+|[{CN_NUMERAL_CHARS}]{{1,8}})"
 _CN_WENHAO_CAISHUI = r"财税[〔\[]\d{4}[〕\]]\d+号"
@@ -402,6 +416,9 @@ def _article_key(law_name: str | None, article: str) -> str:
 
 _NAME_PREFIXES = (
     "依據",
+    # 「依據所得稅法」 matched from the second character leaves 據所得稅法,
+    # a statute that does not exist.
+    "據",
     "依据",
     "依照",
     "依",
@@ -426,6 +443,12 @@ _LAW_NAME_SHAPE = re.compile(
 )
 
 
+# What is left in front of a law name when the match starts inside the previous
+# citation: 「…第八十條第五項及稅捐稽徵法」 begins at 五項及. A real name never
+# opens with a numeral or a structural word, so this is safe to shave off.
+_LEADING_NOISE = re.compile(rf"^[{CN_NUMERAL_CHARS}0-9]*[項款類目款、，,及與和]+")
+
+
 def _clean_law_name(name: str) -> str:
     """Trim the verbs a greedy law-name match drags in front of the real name.
 
@@ -437,6 +460,10 @@ def _clean_law_name(name: str) -> str:
     a law name, so an ordinary name that happens to contain 依 survives intact.
     """
     name = name.strip()
+
+    trimmed = _LEADING_NOISE.sub("", name)
+    if trimmed and _LAW_NAME_SHAPE.match(trimmed):
+        name = trimmed
 
     for prefix in sorted(_NAME_PREFIXES, key=len, reverse=True):
         if name.startswith(prefix):
