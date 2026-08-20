@@ -209,6 +209,8 @@ def _summarise(requirement: TaxRequirement) -> dict[str, Any]:
         "tax_name": _tax_name(requirement.tax_key),
         "scenario": requirement.scenario,
         "taxpayer_role": requirement.taxpayer_role,
+        "identity_key": requirement.identity_key,
+        "dimensions": requirement.dimensions or {},
         "status": requirement.status.value,
         "field_count": len(fields),
         "cited_field_count": len(cited),

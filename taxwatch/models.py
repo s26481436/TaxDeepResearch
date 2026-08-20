@@ -323,6 +323,8 @@ class TaxRequirement(Base):
     tax_key: Mapped[str] = mapped_column(String(50))
     scenario: Mapped[str] = mapped_column(Text)
     taxpayer_role: Mapped[str] = mapped_column(Text, default="")
+    identity_key: Mapped[str] = mapped_column(String(200), default="")
+    dimensions: Mapped[dict] = mapped_column(JSON, default=dict)
 
     status: Mapped[RequirementStatus] = mapped_column(
         Enum(RequirementStatus), default=RequirementStatus.DRAFT
