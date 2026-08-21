@@ -222,6 +222,37 @@ _PRIMARY_LAW_SOURCE = {
 }
 
 
+def _echo_identity_report(stats: dict) -> None:
+    """Say how many rows lack a controlled identity, and why.
+
+    Shared by both entry paths. The tax-keyed path aggregated counts from each
+    document but printed none of this, so a run where every row fell back to
+    text identity looked indistinguishable from a clean one — which is the one
+    fact this feature exists to expose.
+    """
+    without = stats.get("rows_without_identity", 0)
+    if without:
+        emitted = stats.get("requirements_emitted", 0) or without
+        typer.echo(
+            f"\n⚠ {without}/{emitted} 列沒有受控身分（identity_key），"
+            "將以情境描述文字作為身分。"
+            "\n   描述文字每次抽取都會變動，這些列在重跑時不會被更新，而會新增為另一列。"
+        )
+    for key, label in (
+        ("unknown_dimension_values", "未知"),
+        ("incomplete_dimensions", "缺漏"),
+    ):
+        items = stats.get(key) or []
+        if not items:
+            continue
+        typer.echo(f"⚠ {len(items)} 個{label}的身分維度值（已標記待覆核）：")
+        for item in items[:20]:
+            typer.echo(f"  · {item}")
+        if len(items) > 20:
+            typer.echo(f"  · …另有 {len(items) - 20} 筆")
+
+
+
 def _echo_failed_batches(stats: dict) -> None:
     """A partial matrix must announce its own gaps, or it reads as complete."""
     failed = stats.get("failed_batches") or []
@@ -298,6 +329,7 @@ def extract_requirements(
             typer.echo(f"抽出 {stats['requirements']} 個課稅情境")
             for r in stats.get("results", []):
                 _echo_failed_batches(r)
+            _echo_identity_report(stats)
             if dry_run:
                 for row in stats.get("preview", []):
                     typer.echo(f"  - {row['scenario']} / {row['taxpayer_role'] or '（未分身分）'}")
@@ -394,22 +426,7 @@ def extract_requirements(
         typer.echo(f"⚠ 捨棄 {stats['dropped_citations']} 筆指向不存在條文的引用")
     if stats["uncited_fields"]:
         typer.echo(f"⚠ {stats['uncited_fields']} 個欄位無條文依據，已標記待覆核")
-    without = stats.get("rows_without_identity", 0)
-    if without:
-        emitted = stats.get("requirements_emitted", 0)
-        typer.echo(
-            f"\n⚠ {without}/{emitted} 列沒有受控身分（identity_key），"
-            "將以情境描述文字作為身分。"
-            "\n   描述文字每次抽取都會變動，這些列在重跑時不會被更新，而會新增為另一列。"
-        )
-    if stats.get("unknown_dimension_values"):
-        typer.echo(f"⚠ 偵測到 {len(stats['unknown_dimension_values'])} 個未知的身分維度值（已標記待覆核）：")
-        for item in stats["unknown_dimension_values"]:
-            typer.echo(f"  · {item}")
-    if stats.get("incomplete_dimensions"):
-        typer.echo(f"⚠ 偵測到 {len(stats['incomplete_dimensions'])} 個缺漏的身分維度值（已標記待覆核）：")
-        for item in stats["incomplete_dimensions"]:
-            typer.echo(f"  · {item}")
+    _echo_identity_report(stats)
     for item in stats["unresolved"]:
         typer.echo(f"  · 待人工補充：{item}")
     if dry_run:
