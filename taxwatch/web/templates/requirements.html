@@ -78,7 +78,7 @@
       <thead>
         <tr><th>稅種</th><th>課稅情境</th><th>納稅人身分</th><th>狀態</th>
             <th class="num">已填欄位</th><th class="num">有條文依據</th>
-            <th class="num">待覆核</th><th>最後更新</th></tr>
+            <th class="num">待覆核</th><th>最後確認</th></tr>
       </thead>
       <tbody>
         {% for r in requirements %}
@@ -94,7 +94,12 @@
           <td class="num">{{ r.field_count }}</td>
           <td class="num">{{ r.cited_field_count }}</td>
           <td class="num">{{ r.fields_needing_review or '—' }}</td>
-          <td class="mono">{{ r.updated_at | shortdate or '—' }}</td>
+          <td class="mono">
+            {{ r.last_seen_at | shortdate or '—' }}
+            {%- if r.unconfirmed %}
+            <span class="badge badge-muted" title="最近一次抽取沒有產出這一列，內容仍是先前抽取的結果">未重新確認</span>
+            {%- endif %}
+          </td>
         </tr>
         {% else %}
         <tr><td colspan="8" style="color:var(--muted)">
@@ -110,5 +115,8 @@
 <p style="font-size:12.5px;color:var(--muted);margin-top:16px">
   ⚠️ 內容由 LLM 從法規條文抽取，僅供參考、非法律意見。標示「有條文依據」的欄位可點入
   查看引用原文；無依據的欄位一律列為待覆核。實際申報請以官方原文與專業意見為準。
+  <br>「最後確認」是該列最近一次被抽取產出的日期。標示
+  <span class="badge badge-muted">未重新確認</span>
+  者，最近一次抽取沒有涵蓋到它 —— 該列仍在矩陣中，但內容是先前抽取的結果。
 </p>
 {% endblock %}
