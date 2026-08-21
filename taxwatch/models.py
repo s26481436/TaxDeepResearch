@@ -342,6 +342,13 @@ class TaxRequirement(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+    # Stamped on every extraction that produced this row, whether or not its
+    # content changed. `updated_at` cannot answer this: `onupdate` fires only on
+    # a real change, so a row re-confirmed identically and a row no run has
+    # touched for months carry the same timestamp. Coverage varies between runs,
+    # and a matrix that presents unconfirmed rows exactly like confirmed ones
+    # asks the reader to trust what it did not check.
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     fields: Mapped[list[RequirementField]] = relationship(
         back_populates="requirement",
