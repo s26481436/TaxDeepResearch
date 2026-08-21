@@ -244,10 +244,16 @@ def _echo_coverage_report(stats: dict) -> None:
     stays and simply is not refreshed. That is survivable, and silent, which is
     the combination worth printing.
     """
+    total = stats.get("dimension_values_total", 0)
     unused = stats.get("unused_dimension_values") or []
     if not unused:
+        # Silence would mean two different things — full coverage, or no
+        # vocabulary for this tax regime at all. Reading a run that printed
+        # nothing has already cost a round-trip once this week.
+        if total:
+            typer.echo(f"\n✓ {total}/{total} 個受控維度值都有對應的規範列。")
         return
-    typer.echo(f"\n○ {len(unused)} 個受控維度值本次沒有對應的規範列：")
+    typer.echo(f"\n○ {len(unused)}/{total or len(unused)} 個受控維度值本次沒有對應的規範列：")
     for value in unused[:20]:
         typer.echo(f"  · {value}")
     if len(unused) > 20:
