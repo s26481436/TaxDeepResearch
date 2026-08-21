@@ -63,10 +63,14 @@ def test_vocabulary_per_tax_regime():
     assert "scenario_key" in vocab_tw
 
     vocab_cn = get_dimensions_vocabulary("CN", "cn_vat")
-    assert vocab_cn == {}
+    assert "taxpayer_class" in vocab_cn
+    # A separate regime, not a translation: 一般納稅人／小規模納稅人 has no
+    # counterpart in TW 所得稅, and 居住者／非居住者 has none in CN 增值稅.
+    assert vocab_cn["taxpayer_class"] != vocab_tw["taxpayer_class"]
 
-    vocab_unknown = get_dimensions_vocabulary("US", "us_cit")
-    assert vocab_unknown == {}
+    # A key no jurisdiction defines — kept deliberately unreal so that adding a
+    # vocabulary for a real tax type never turns this into a failure.
+    assert get_dimensions_vocabulary("XX", "xx_undefined") == {}
 
 
 def test_identity_key_fixed_order():

@@ -92,6 +92,78 @@ _TW_INCOME_SCENARIO_KEYS = (
     DimensionValue("offshore_banking_unit", "國際金融業務分行（OBU）相關所得"),
 )
 
+# ---------------------------------------------------------------------------
+# CN — 增值稅
+#
+# A separate regime, not a translation of the TW vocabulary. 中國的增值稅以
+# 「一般納稅人／小規模納稅人」區分主體，以「一般計稅／簡易計稅」區分方法，
+# 而台灣所得稅兩者皆無。Sharing values across jurisdictions would produce keys
+# that look comparable and are not.
+#
+# The same three rules that took four rounds to settle on TW apply here:
+#   1. 每個維度只回答一個問題
+#   2. 「條文未區分」必須有值可填，否則模型會從具體值裡隨便挑一個
+#   3. 非預設值 = 必須另成一列
+_CN_VAT_TAXPAYER_CLASSES = (
+    DimensionValue(
+        "all_taxpayers",
+        "不分納稅人類別（條文對各類納稅人一體適用）",
+        "**預設值**。除非條文明確只適用某一類納稅人，否則填本值。",
+    ),
+    DimensionValue("general_taxpayer", "一般納稅人"),
+    DimensionValue("small_scale_taxpayer", "小規模納稅人"),
+    DimensionValue(
+        "overseas_entity",
+        "境外單位和個人（在境內發生應稅交易）",
+        "境內購買方為扣繳義務人時，本維度仍填境外單位和個人——扣繳義務由 "
+        "`tax_scheme=withholding` 表達。",
+    ),
+)
+
+_CN_VAT_TAX_SCHEMES = (
+    DimensionValue("general_method", "一般計稅方法（銷項稅額扣減進項稅額）"),
+    DimensionValue("simplified_method", "簡易計稅方法（依徵收率計算）"),
+    DimensionValue(
+        "withholding",
+        "扣繳",
+        "境外單位和個人在境內發生應稅交易，由購買方扣繳時選用。",
+    ),
+)
+
+_CN_VAT_SUBJECT_MATTERS = (
+    DimensionValue("goods", "銷售貨物"),
+    DimensionValue("processing_repair", "提供加工、修理修配勞務"),
+    DimensionValue("services", "銷售服務"),
+    DimensionValue("intangibles", "銷售無形資產"),
+    DimensionValue("real_estate", "銷售不動產"),
+    DimensionValue("imports", "進口貨物"),
+)
+
+_CN_VAT_SCENARIO_KEYS = (
+    DimensionValue("standard", "標準／一般情境"),
+    DimensionValue("export_zero_rate", "出口貨物、跨境應稅交易適用零稅率"),
+    DimensionValue("deemed_taxable", "視同應稅交易"),
+    DimensionValue("mixed_sales", "混合銷售、兼營不同稅率或徵收率項目"),
+    DimensionValue("used_fixed_assets", "銷售自己使用過的固定資產"),
+    DimensionValue("real_estate_lease", "不動產經營租賃"),
+    DimensionValue("small_scale_threshold", "小規模納稅人未達起徵點／月銷售額標準"),
+)
+
+_CN_VAT_RULES = (
+    "`taxpayer_class` 只回答「納稅的是什麼樣的主體」。扣繳義務人、代理人、"
+    "承運人都不是合法值——那些義務由 `tax_scheme` 表達。",
+    "條文若未依納稅人類別而有不同規範，填 `all_taxpayers`。"
+    "**不要隨意挑一個具體類別。**",
+    "`tax_scheme` 只回答「怎麼計稅」，不回答「課不課」。免稅、不徵稅、"
+    "即徵即退**不是** tax_scheme 的值——那屬於該列的 `tax_base` 或 `formula` 內容。",
+    "同一納稅人類別下，一般計稅與簡易計稅的稅率／徵收率完全不同，"
+    "必須拆成不同的規範列。簡易計稅的各種徵收率（5%、3%、減按2%、減按1.5%、"
+    "減按1%）屬於同一列的 `tax_rate` 內容，逐字照抄，不要只寫其中一種。",
+    "**詞彙表中的非預設值就是「必須另成一列」的定義。** `subject_matter` 與 "
+    "`scenario_key` 只要有對應的專門值就必須使用並另成一列；"
+    "`standard` 只用於沒有這些特別規定的情境。",
+)
+
 # Rules that resolve choices the vocabulary alone leaves open. Every rule here
 # exists because two runs of the same statute answered it differently.
 _TW_INCOME_RULES = (
@@ -123,12 +195,14 @@ _TW_INCOME_RULES = (
 
 _RULES: dict[tuple[str, str], tuple[str, ...]] = {
     ("TW", "tw_income"): _TW_INCOME_RULES,
+    ("CN", "cn_vat"): _CN_VAT_RULES,
 }
 
 
 def get_identity_rules(country: str, tax_key: str) -> tuple[str, ...]:
     """Disambiguation rules for dimension choices in this tax regime."""
     return _RULES.get((country.upper(), tax_key), ())
+
 
 
 _REGISTRY: dict[tuple[str, str], dict[str, tuple[DimensionValue, ...]]] = {
@@ -138,7 +212,22 @@ _REGISTRY: dict[tuple[str, str], dict[str, tuple[DimensionValue, ...]]] = {
         "subject_matter": _TW_INCOME_SUBJECT_MATTERS,
         "scenario_key": _TW_INCOME_SCENARIO_KEYS,
     },
+    ("CN", "cn_vat"): {
+        "taxpayer_class": _CN_VAT_TAXPAYER_CLASSES,
+        "tax_scheme": _CN_VAT_TAX_SCHEMES,
+        "subject_matter": _CN_VAT_SUBJECT_MATTERS,
+        "scenario_key": _CN_VAT_SCENARIO_KEYS,
+    },
 }
+
+
+def registered_regimes() -> tuple[tuple[str, str], ...]:
+    """Every (country, tax_key) with a controlled vocabulary.
+
+    Exported so the invariants that took four rounds to settle can be asserted
+    over every regime at once, rather than re-learned per jurisdiction.
+    """
+    return tuple(sorted(_REGISTRY))
 
 
 def get_dimensions_vocabulary(country: str, tax_key: str) -> dict[str, tuple[DimensionValue, ...]]:

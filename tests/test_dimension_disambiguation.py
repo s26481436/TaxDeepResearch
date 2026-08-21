@@ -102,7 +102,7 @@ def test_rules_reach_the_prompt():
 
 
 def test_no_rules_section_without_a_vocabulary():
-    assert format_dimensions_section("CN", "cn_vat") == ""
+    assert format_dimensions_section("XX", "xx_undefined") == ""
 
 
 def test_the_vocabulary_defines_what_must_be_split():
