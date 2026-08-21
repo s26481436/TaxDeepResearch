@@ -48,14 +48,27 @@ def test_documents_intersect_rather_than_accumulate():
 
 
 def test_report_states_that_the_rows_survive_unrefreshed(capsys):
-    cli._echo_coverage_report({"unused_dimension_values": ["scenario_key=loss_carryforward"]})
+    cli._echo_coverage_report(
+        {
+            "unused_dimension_values": ["scenario_key=loss_carryforward"],
+            "dimension_values_total": 25,
+        }
+    )
     out = capsys.readouterr().out
     assert "loss_carryforward" in out
     assert "未重新確認" in out, "the consequence is the point, not the list"
 
 
-def test_silent_when_everything_was_covered(capsys):
-    cli._echo_coverage_report({"unused_dimension_values": []})
+def test_full_coverage_is_stated_rather_than_implied(capsys):
+    """Silence would mean both "all covered" and "no vocabulary at all"."""
+    cli._echo_coverage_report({"unused_dimension_values": [], "dimension_values_total": 25})
+    out = capsys.readouterr().out
+    assert "25/25" in out
+    assert "✓" in out
+
+
+def test_silent_when_the_tax_regime_has_no_vocabulary(capsys):
+    cli._echo_coverage_report({"unused_dimension_values": [], "dimension_values_total": 0})
     assert capsys.readouterr().out == ""
 
 

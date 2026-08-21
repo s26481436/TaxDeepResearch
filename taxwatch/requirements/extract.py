@@ -111,6 +111,16 @@ def _intersect_unused(carried: list[str] | None, incoming: list[str]) -> list[st
     return [value for value in carried if value in incoming_set]
 
 
+def _dimension_values_total(country: str, tax_key: str) -> int:
+    from taxwatch.requirements.dimensions import (
+        DIMENSION_ORDER,
+        get_dimensions_vocabulary,
+    )
+
+    vocab = get_dimensions_vocabulary(country, tax_key)
+    return sum(len(vocab.get(dim, ())) for dim in DIMENSION_ORDER)
+
+
 def _unused_dimension_values(
     country: str, tax_key: str, processed_rows: list[dict[str, Any]]
 ) -> list[str]:
@@ -191,6 +201,7 @@ def extract_for_tax(
         # is not a gap in the matrix if another statute supplies it, so these
         # intersect across documents rather than accumulating.
         "unused_dimension_values": None,
+        "dimension_values_total": 0,
         # Carried up from each document so --dry-run can show what a run would
         # produce. Without it the tax-level path reports a count and nothing
         # else, which is the one thing a dry run exists to avoid.
@@ -236,6 +247,10 @@ def extract_for_tax(
                 stat.get("unknown_dimension_values", [])
             )
             overall_stats["incomplete_dimensions"].extend(stat.get("incomplete_dimensions", []))
+            overall_stats["dimension_values_total"] = max(
+                overall_stats["dimension_values_total"],
+                stat.get("dimension_values_total", 0),
+            )
             overall_stats["unused_dimension_values"] = _intersect_unused(
                 overall_stats.get("unused_dimension_values"),
                 stat.get("unused_dimension_values", []),
@@ -459,6 +474,9 @@ def extract_for_document(
         # (虧損扣除 in one, OBU in the next), and the count of rows cannot show
         # which topic went missing.
         "unused_dimension_values": [],
+        # Denominator for the coverage line. Without it "nothing unused" and
+        # "no vocabulary defined" both print as silence.
+        "dimension_values_total": 0,
         "truncated_nodes": 0,
         "dropped_citations": 0,
         "uncited_fields": 0,
@@ -479,6 +497,9 @@ def extract_for_document(
     )
     stats["unused_dimension_values"] = _unused_dimension_values(
         resolved_country, resolved_tax_key, processed_rows
+    )
+    stats["dimension_values_total"] = _dimension_values_total(
+        resolved_country, resolved_tax_key
     )
     for item in processed_rows:
         row_label = (item["row"].scenario or "").strip()
