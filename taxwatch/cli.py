@@ -222,6 +222,21 @@ _PRIMARY_LAW_SOURCE = {
 }
 
 
+def _echo_provenance() -> None:
+    """Say which code is about to run, and where it was loaded from.
+
+    A pulled checkout and a non-editable install of an older `taxwatch` look
+    identical from the shell: `git log` shows the new commit while the import
+    still resolves to site-packages. Reconciling that cost several round-trips,
+    and the run itself already knows both answers.
+    """
+    from pathlib import Path
+
+    from taxwatch.requirements import prompts
+
+    typer.echo(f"prompt {prompts.PROMPT_VERSION} — {Path(prompts.__file__).parent.parent}")
+
+
 def _echo_identity_report(stats: dict) -> None:
     """Say how many rows carry a controlled identity, and why the rest do not.
 
@@ -334,6 +349,7 @@ def extract_requirements(
     from taxwatch.taxonomy import by_key
 
     _init_db()
+    _echo_provenance()
     session = get_session()
     try:
         # Check if tax_or_doc is a known tax_key
