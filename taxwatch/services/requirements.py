@@ -90,10 +90,39 @@ def list_requirements(
         query = query.filter(TaxRequirement.tax_key == tax_key)
 
     rows = [_summarise(r) for r in query.all()]
+    _mark_unconfirmed(rows)
     # Anything needing review first — that is the only reason to open this page
     # when nothing has changed.
     rows.sort(key=lambda r: (-r["fields_needing_review"], r["scenario"]))
     return rows
+
+
+def _mark_unconfirmed(rows: list[dict[str, Any]]) -> None:
+    """Flag rows the most recent extraction of their tax type did not produce.
+
+    Coverage varies between runs — 虧損扣除 appears in one pass and OBU in the
+    next — and because upsert matches on identity_key, a missed row is neither
+    duplicated nor deleted. It stays, unrefreshed, looking exactly like a row
+    that was just confirmed. That is the one thing the matrix must not do: a
+    filer reading it cannot tell which cells were checked against current law.
+
+    Every row of one extraction shares its timestamp, so "the latest pass" is an
+    exact comparison rather than a guess at how long a run takes.
+    """
+    latest: dict[tuple[str, str], str] = {}
+    for row in rows:
+        seen = row.get("last_seen_at")
+        if not seen:
+            continue
+        key = (row["country"], row["tax_key"])
+        if seen > latest.get(key, ""):
+            latest[key] = seen
+
+    for row in rows:
+        seen = row.get("last_seen_at")
+        newest = latest.get((row["country"], row["tax_key"]))
+        # No run has ever stamped this tax type: nothing to be behind of.
+        row["unconfirmed"] = bool(newest) and seen != newest
 
 
 def get_requirement(session: Session, requirement_id: int) -> dict[str, Any]:
@@ -219,6 +248,9 @@ def _summarise(requirement: TaxRequirement) -> dict[str, Any]:
             round(sum(f.confidence for f in cited) / len(cited), 3) if cited else None
         ),
         "updated_at": requirement.updated_at.isoformat() if requirement.updated_at else None,
+        "last_seen_at": (
+            requirement.last_seen_at.isoformat() if requirement.last_seen_at else None
+        ),
     }
 
 

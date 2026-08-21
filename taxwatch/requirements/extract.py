@@ -208,6 +208,10 @@ def extract_for_tax(
     # rows of their own, because the model cannot fold into what it cannot see.
     known_scenarios: list[tuple[str, str]] = []
 
+    # Shared by every document of this tax type: they are one extraction of one
+    # matrix, and a row is unconfirmed only if this whole pass missed it.
+    seen_at = datetime.utcnow()
+
     for doc in docs:
         try:
             stat = extract_for_document(
@@ -218,6 +222,7 @@ def extract_for_tax(
                 dry_run=dry_run,
                 allow_child=allow_child,
                 known_scenarios=known_scenarios,
+                seen_at=seen_at,
             )
             overall_stats["results"].append(stat)
             overall_stats["requirements"] += stat.get("requirements", 0)
@@ -255,6 +260,7 @@ def extract_for_document(
     dry_run: bool = False,
     allow_child: bool = False,
     known_scenarios: list[tuple[str, str]] | None = None,
+    seen_at: datetime | None = None,
 ) -> dict[str, Any]:
     """Extract 申報規範 for one statute and everything implementing it.
 
@@ -500,6 +506,10 @@ def extract_for_document(
         stats["preview"] = preview
         return stats
 
+    # One timestamp for the whole run, not one per row. "Confirmed by the most
+    # recent extraction" is then an exact comparison against the maximum, rather
+    # than a guess at how long a run takes.
+    seen_at = seen_at or datetime.utcnow()
     written_this_run: set[tuple[int, str]] = set()
     for item in processed_rows:
         row = item["row"]
@@ -516,6 +526,7 @@ def extract_for_document(
             identity_key=item["identity_key"],
             unknowns=item["unknowns"],
             missing=item["missing"],
+            seen_at=seen_at,
         )
         stats["dropped_citations"] += dropped
         stats["uncited_fields"] += uncited
@@ -681,6 +692,7 @@ def _upsert_requirement(
     identity_key: str | None = None,
     unknowns: list[tuple[str, str]] | None = None,
     missing: list[str] | None = None,
+    seen_at: datetime | None = None,
 ) -> tuple[int, int, list[tuple[str, str]], list[str]]:
     from taxwatch.requirements.dimensions import (
         compute_identity_key,
@@ -745,7 +757,7 @@ def _upsert_requirement(
             requirement.dimensions = valid_dims
 
     requirement.status = RequirementStatus.DRAFT
-    requirement.last_seen_at = datetime.utcnow()
+    requirement.last_seen_at = seen_at or datetime.utcnow()
     requirement.model = model
     requirement.prompt_version = PROMPT_VERSION
     if document is not None:

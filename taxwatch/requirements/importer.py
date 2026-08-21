@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -354,6 +355,10 @@ def _upsert(
         )
         session.add(requirement)
     requirement.status = RequirementStatus.DRAFT
+    # An imported row is confirmed by this import, the same way an extracted row
+    # is confirmed by its extraction. Without the stamp it would read on the
+    # matrix as never having been checked at all.
+    requirement.last_seen_at = datetime.utcnow()
 
     if source_note.strip():
         note_str = source_note.strip()
