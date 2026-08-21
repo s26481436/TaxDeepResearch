@@ -136,6 +136,11 @@ def extract_for_tax(
         "documents_processed": len(docs),
         "source_documents": [d.title for d in docs],
         "requirements": 0,
+        # Model output rows before identity folding. `_echo_identity_report`
+        # divides by it, and without it the tax path could only ever report
+        # "n/n" — true by accident when every row lacks an identity, wrong the
+        # moment some row has one.
+        "requirements_emitted": 0,
         "dropped_citations": 0,
         "uncited_fields": 0,
         "rows_without_identity": 0,
@@ -171,6 +176,7 @@ def extract_for_tax(
             )
             overall_stats["results"].append(stat)
             overall_stats["requirements"] += stat.get("requirements", 0)
+            overall_stats["requirements_emitted"] += stat.get("requirements_emitted", 0)
             overall_stats["dropped_citations"] += stat.get("dropped_citations", 0)
             overall_stats["uncited_fields"] += stat.get("uncited_fields", 0)
             overall_stats["preview"].extend(stat.get("preview", []))

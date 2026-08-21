@@ -223,21 +223,27 @@ _PRIMARY_LAW_SOURCE = {
 
 
 def _echo_identity_report(stats: dict) -> None:
-    """Say how many rows lack a controlled identity, and why.
+    """Say how many rows carry a controlled identity, and why the rest do not.
 
     Shared by both entry paths. The tax-keyed path aggregated counts from each
     document but printed none of this, so a run where every row fell back to
     text identity looked indistinguishable from a clean one — which is the one
     fact this feature exists to expose.
+
+    It reports the healthy case too. Silence cannot distinguish "every row got
+    an identity" from "this branch never ran", and reading a run that printed
+    nothing already cost one round-trip.
     """
     without = stats.get("rows_without_identity", 0)
+    emitted = stats.get("requirements_emitted", 0) or without
     if without:
-        emitted = stats.get("requirements_emitted", 0) or without
         typer.echo(
             f"\n⚠ {without}/{emitted} 列沒有受控身分（identity_key），"
             "將以情境描述文字作為身分。"
             "\n   描述文字每次抽取都會變動，這些列在重跑時不會被更新，而會新增為另一列。"
         )
+    elif emitted:
+        typer.echo(f"\n✓ {emitted}/{emitted} 列具備受控身分（identity_key），重跑時可對位更新。")
     for key, label in (
         ("unknown_dimension_values", "未知"),
         ("incomplete_dimensions", "缺漏"),
@@ -251,6 +257,24 @@ def _echo_identity_report(stats: dict) -> None:
         if len(items) > 20:
             typer.echo(f"  · …另有 {len(items) - 20} 筆")
 
+
+
+def _echo_preview(stats: dict) -> None:
+    """Print the dry-run rows, identity first.
+
+    The tax path had its own copy of this loop that dropped identity_key, so a
+    dry run could not show whether the controlled dimensions had been filled —
+    the same divergence between the two paths, for the third time. One function,
+    called from both.
+    """
+    for row in stats.get("preview", []):
+        role = row.get("taxpayer_role") or "（未分身分）"
+        id_key = row.get("identity_key")
+        if id_key:
+            typer.echo(f"  - {id_key}")
+            typer.echo(f"      {row['scenario']} / {role}")
+        else:
+            typer.echo(f"  - {row['scenario']} / {role}")
 
 
 def _echo_failed_batches(stats: dict) -> None:
@@ -331,8 +355,7 @@ def extract_requirements(
                 _echo_failed_batches(r)
             _echo_identity_report(stats)
             if dry_run:
-                for row in stats.get("preview", []):
-                    typer.echo(f"  - {row['scenario']} / {row['taxpayer_role'] or '（未分身分）'}")
+                _echo_preview(stats)
             if stats["dropped_citations"]:
                 typer.echo(f"⚠ 捨棄 {stats['dropped_citations']} 筆指向不存在條文的引用")
             if stats["uncited_fields"]:
@@ -430,13 +453,7 @@ def extract_requirements(
     for item in stats["unresolved"]:
         typer.echo(f"  · 待人工補充：{item}")
     if dry_run:
-        for row in stats.get("preview", []):
-            id_key = row.get("identity_key")
-            if id_key:
-                typer.echo(f"  - {id_key}")
-                typer.echo(f"      {row['scenario']} / {row['taxpayer_role'] or '（未分身分）'}")
-            else:
-                typer.echo(f"  - {row['scenario']} / {row['taxpayer_role'] or '（未分身分）'}")
+        _echo_preview(stats)
 
 
 @app.command()
