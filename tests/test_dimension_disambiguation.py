@@ -34,20 +34,43 @@ def test_a_retired_value_is_reported_rather_than_silently_accepted():
     assert ("taxpayer_class", "withholding_agent") in unknowns
 
 
-def test_trustee_survives_because_the_statute_sometimes_taxes_it():
-    """所得稅法第3條之4第3項 does make the trustee the taxpayer."""
-    assert "trustee" in _classes()
-    trustee = next(
-        v
-        for v in get_dimensions_vocabulary("TW", "tw_income")["taxpayer_class"]
-        if v.key == "trustee"
-    )
-    assert "不特定" in trustee.description, "the narrow case must be stated, not implied"
+def test_a_role_is_not_a_taxpayer_class():
+    """A trust beneficiary is genuinely a role *and* a resident individual.
+
+    Offering both under one dimension is what made the whole 信託 cluster swing
+    between `trustee`, `beneficiary` and `resident_individual` across runs.
+    """
+    assert _classes().isdisjoint({"trustee", "beneficiary"})
 
 
-def test_the_trust_default_is_written_down():
+def test_taxpayer_class_covers_only_residency_and_legal_form():
+    assert _classes() == {
+        "resident_individual",
+        "nonresident_individual",
+        "domestic_enterprise",
+        "foreign_enterprise",
+        "sole_proprietorship",
+    }
+
+
+def test_the_trust_roles_moved_to_scenario_key():
+    """Removing them from taxpayer_class must not lose the distinction."""
+    keys = {v.key for v in get_dimensions_vocabulary("TW", "tw_income")["scenario_key"]}
+    assert {"beneficiary_identified", "beneficiary_unidentified", "public_trust"} <= keys
+
+
+def test_exemption_is_not_a_collection_method():
+    """`tax_scheme` says how the tax is collected, not whether there is one."""
+    schemes = {v.key for v in get_dimensions_vocabulary("TW", "tw_income")["tax_scheme"]}
+    assert "not_taxable" not in schemes
+    assert schemes == {"annual_filing", "withholding", "profit_distribution"}
+
+
+def test_the_retired_values_are_named_in_the_rules():
+    """A value the model used last run must be ruled out explicitly."""
     rules = " ".join(get_identity_rules("TW", "tw_income"))
-    assert "beneficiary" in rules and "trustee" in rules
+    for term in ("受託人", "受益人", "扣繳義務人", "免稅"):
+        assert term in rules
 
 
 def test_rules_reach_the_prompt():

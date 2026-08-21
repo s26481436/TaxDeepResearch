@@ -26,33 +26,28 @@ DIMENSION_ORDER = (
     "scenario_key",
 )
 
-# taxpayer_class is always the party the tax is imposed on — never the party
-# that merely files or withholds on someone else's behalf. Two runs of the same
-# statute previously disagreed on the whole 信託 cluster (run A said `trustee`,
-# run B said `beneficiary`) because the vocabulary offered both answers to one
-# question with nothing to choose between them. The duty to file or withhold is
-# already carried by `tax_scheme`, so it must not be encoded here as well.
+# Each dimension answers exactly one question. Where a dimension answered two,
+# every row it touched had two defensible values and two runs picked different
+# ones — the whole 信託 cluster swung between `trustee`, `beneficiary` and
+# `resident_individual` across runs, because a trust beneficiary is genuinely
+# all three: a role in a legal relationship, and a class of taxpayer.
+#
+# taxpayer_class answers only "what kind of entity is taxed" — residency and
+# legal form. Roles in a particular relationship (受託人、受益人、扣繳義務人)
+# belong to `scenario_key` and `tax_scheme`, which already carry them.
 _TW_INCOME_TAXPAYER_CLASSES = (
     DimensionValue("resident_individual", "中華民國境內居住之個人（居住者）"),
     DimensionValue("nonresident_individual", "非中華民國境內居住之個人（非居住者）"),
     DimensionValue("domestic_enterprise", "總機構在中華民國境內之營利事業"),
     DimensionValue("foreign_enterprise", "總機構在中華民國境外之營利事業"),
     DimensionValue("sole_proprietorship", "獨資、合夥組織之營利事業"),
-    DimensionValue(
-        "beneficiary",
-        "信託行為之受益人",
-        "信託財產發生之所得，依所得稅法第3條之4第1項歸屬受益人課稅時選用；"
-        "此為信託所得的預設納稅主體。",
-    ),
-    DimensionValue(
-        "trustee",
-        "信託行為之受託人",
-        "僅限受益人不特定或尚未存在，依所得稅法第3條之4第3項以受託人為納稅義務人者；"
-        "此時 scenario_key 應填 beneficiary_unidentified 或 public_trust。"
-        "受託人僅負代為計算、申報或扣繳義務時，不得選用本值。",
-    ),
 )
 
+# `not_taxable` answered a different question from the rest: the others say how
+# the tax is collected, it says whether there is any. So every exemption could
+# be filed as either 免稅 or 結算申報 with no way to choose, and 證券、期貨、
+# 房地 each swung between the two. Whether an item is exempt is content of the
+# row (`tax_base`, `formula`), not part of its identity.
 _TW_INCOME_TAX_SCHEMES = (
     DimensionValue("annual_filing", "結算申報／決算申報／清算申報"),
     DimensionValue(
@@ -62,7 +57,6 @@ _TW_INCOME_TAX_SCHEMES = (
         "不要填扣繳義務人。",
     ),
     DimensionValue("profit_distribution", "盈餘分配／未分配盈餘加徵"),
-    DimensionValue("not_taxable", "免稅／不計入所得／不課稅"),
 )
 
 _TW_INCOME_SUBJECT_MATTERS = (
@@ -90,11 +84,18 @@ _TW_INCOME_SCENARIO_KEYS = (
 # Rules that resolve choices the vocabulary alone leaves open. Every rule here
 # exists because two runs of the same statute answered it differently.
 _TW_INCOME_RULES = (
-    "`taxpayer_class` 一律填「稅捐所歸屬的人」，不填代為申報或扣繳的人。"
-    "扣繳義務人、代理人、負責人都不是 taxpayer_class 的合法值 —— "
-    "那份義務由 `tax_scheme=withholding` 表達。",
-    "信託所得預設 `taxpayer_class=beneficiary`；只有受益人不特定或尚未存在時"
-    "（所得稅法第3條之4第3項）才填 `trustee`。",
+    "`taxpayer_class` 只回答「納稅的是什麼樣的主體」——居住者/非居住者、"
+    "營利事業/個人。**不要填在法律關係中的角色**：受託人、受益人、"
+    "扣繳義務人、代理人都不是合法值。",
+    "信託所得填受益人本身的主體類別（通常是 `resident_individual` 或 "
+    "`domestic_enterprise`），並以 `subject_matter=trust_income` 標示其為信託所得；"
+    "受益人是否確定、是否為公益信託則由 `scenario_key` 表達"
+    "（`beneficiary_identified`／`beneficiary_unidentified`／`public_trust`）。",
+    "受益人不特定或尚未存在時以受託人為納稅義務人（所得稅法第3條之4第3項），"
+    "此時 `scenario_key=beneficiary_unidentified`，`taxpayer_class` 仍填受託人的主體類別。",
+    "`tax_scheme` 只回答「怎麼課、怎麼申報」，不回答「課不課」。"
+    "免稅、停徵、不計入所得總額**不是** tax_scheme 的值——"
+    "那屬於該列的 `tax_base` 或 `formula` 內容，仍依實際申報方式填 tax_scheme。",
     "若同一條文同時規範所得人與扣繳義務人，視為同一個情境，"
     "填所得人的 taxpayer_class 並以 `tax_scheme=withholding` 標示。",
 )
