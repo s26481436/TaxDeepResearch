@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-PROMPT_VERSION = "req-v6"
+PROMPT_VERSION = "req-v7"
 
 SYSTEM_PROMPT = """你是稅務合規分析師，負責把法規條文整理成企業可直接依循的申報規範。
 
@@ -117,7 +117,10 @@ def format_field_definitions() -> str:
 
 
 def format_dimensions_section(country: str, tax_key: str) -> str:
-    from taxwatch.requirements.dimensions import get_dimensions_vocabulary
+    from taxwatch.requirements.dimensions import (
+        get_dimensions_vocabulary,
+        get_identity_rules,
+    )
 
     vocab = get_dimensions_vocabulary(country, tax_key)
     if not vocab:
@@ -146,5 +149,13 @@ def format_dimensions_section(country: str, tax_key: str) -> str:
                 desc = f" — {item.description}" if item.description else ""
                 lines.append(f"- `{item.key}`: {item.label_zh}{desc}")
             lines.append("")
+
+    # Placed after the vocabulary: these answer questions the lists cannot,
+    # and each one is a choice two runs previously made differently.
+    rules = get_identity_rules(country, tax_key)
+    if rules:
+        lines.append("### 維度選擇規則（牴觸時以本節為準）")
+        lines.extend(f"- {rule}" for rule in rules)
+        lines.append("")
 
     return "\n".join(lines)
