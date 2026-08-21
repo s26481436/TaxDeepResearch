@@ -103,3 +103,16 @@ def test_rules_reach_the_prompt():
 
 def test_no_rules_section_without_a_vocabulary():
     assert format_dimensions_section("CN", "cn_vat") == ""
+
+
+def test_the_vocabulary_defines_what_must_be_split():
+    """Rule 5 says what not to split; nothing said what must be.
+
+    So 證券交易所得 became its own row in one run and folded into
+    `general_income` in the next — the folding pressure ran one way only, and
+    coverage varied between runs of the same statute.
+    """
+    rules = " ".join(get_identity_rules("TW", "tw_income"))
+    assert "general_income" in rules
+    assert "standard" in rules
+    assert "另成一列" in rules
