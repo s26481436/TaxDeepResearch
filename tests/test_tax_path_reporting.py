@@ -72,15 +72,66 @@ def test_both_cli_paths_call_the_same_reporter():
     assert source.count("_echo_identity_report(") == 2
 
 
-def test_reporter_says_nothing_when_every_row_has_an_identity(capsys):
+def test_reporter_confirms_the_healthy_case(capsys):
+    """Silence cannot distinguish "all rows have an identity" from "never ran"."""
     cli._echo_identity_report(
         {
             "rows_without_identity": 0,
+            "requirements_emitted": 29,
             "unknown_dimension_values": [],
             "incomplete_dimensions": [],
         }
     )
+    out = capsys.readouterr().out
+    assert "29/29" in out
+    assert "✓" in out
+
+
+def test_reporter_stays_quiet_when_there_are_no_rows(capsys):
+    cli._echo_identity_report({"rows_without_identity": 0, "requirements_emitted": 0})
     assert capsys.readouterr().out == ""
+
+
+def test_tax_path_aggregates_requirements_emitted(session, tw_law):
+    client = MagicMock(model="m")
+    client.generate_structured.return_value = RequirementSetOut(
+        requirements=[RequirementOut(scenario="居住者個人", taxpayer_role="個人")],
+        unresolved=[],
+    )
+    with patch("taxwatch.requirements.extract.get_llm_client", return_value=client):
+        stats = ext.extract_for_tax(session, "tw_income", dry_run=True)
+    assert stats["requirements_emitted"] == 1
+
+
+def test_both_cli_paths_call_the_same_preview_printer():
+    source = inspect.getsource(cli.extract_requirements)
+    assert source.count("_echo_preview(") == 2
+
+
+def test_preview_shows_the_identity_key(capsys):
+    cli._echo_preview(
+        {
+            "preview": [
+                {
+                    "identity_key": "resident_individual|annual_filing|general_income|standard",
+                    "scenario": "居住者綜合所得稅結算申報",
+                    "taxpayer_role": "個人",
+                }
+            ]
+        }
+    )
+    out = capsys.readouterr().out
+    assert "resident_individual|annual_filing|general_income|standard" in out
+    assert "居住者綜合所得稅結算申報" in out
+
+
+def test_preview_falls_back_to_text_without_an_identity(capsys):
+    cli._echo_preview(
+        {"preview": [{"identity_key": "", "scenario": "某情境", "taxpayer_role": ""}]}
+    )
+    out = capsys.readouterr().out
+    assert "某情境" in out
+    assert "（未分身分）" in out
 
 
 def test_reporter_names_the_consequence(capsys):
