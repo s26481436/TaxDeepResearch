@@ -37,7 +37,7 @@ def test_a_used_value_is_not_reported_missing():
 
 
 def test_an_undefined_vocabulary_reports_nothing():
-    assert _unused_dimension_values("CN", "cn_vat", _rows({})) == []
+    assert _unused_dimension_values("XX", "xx_undefined", _rows({})) == []
 
 
 def test_documents_intersect_rather_than_accumulate():
