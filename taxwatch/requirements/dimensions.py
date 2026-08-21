@@ -26,20 +26,41 @@ DIMENSION_ORDER = (
     "scenario_key",
 )
 
+# taxpayer_class is always the party the tax is imposed on — never the party
+# that merely files or withholds on someone else's behalf. Two runs of the same
+# statute previously disagreed on the whole 信託 cluster (run A said `trustee`,
+# run B said `beneficiary`) because the vocabulary offered both answers to one
+# question with nothing to choose between them. The duty to file or withhold is
+# already carried by `tax_scheme`, so it must not be encoded here as well.
 _TW_INCOME_TAXPAYER_CLASSES = (
     DimensionValue("resident_individual", "中華民國境內居住之個人（居住者）"),
     DimensionValue("nonresident_individual", "非中華民國境內居住之個人（非居住者）"),
     DimensionValue("domestic_enterprise", "總機構在中華民國境內之營利事業"),
     DimensionValue("foreign_enterprise", "總機構在中華民國境外之營利事業"),
     DimensionValue("sole_proprietorship", "獨資、合夥組織之營利事業"),
-    DimensionValue("trustee", "信託行為之受託人"),
-    DimensionValue("beneficiary", "信託行為之受益人"),
-    DimensionValue("withholding_agent", "扣繳義務人"),
+    DimensionValue(
+        "beneficiary",
+        "信託行為之受益人",
+        "信託財產發生之所得，依所得稅法第3條之4第1項歸屬受益人課稅時選用；"
+        "此為信託所得的預設納稅主體。",
+    ),
+    DimensionValue(
+        "trustee",
+        "信託行為之受託人",
+        "僅限受益人不特定或尚未存在，依所得稅法第3條之4第3項以受託人為納稅義務人者；"
+        "此時 scenario_key 應填 beneficiary_unidentified 或 public_trust。"
+        "受託人僅負代為計算、申報或扣繳義務時，不得選用本值。",
+    ),
 )
 
 _TW_INCOME_TAX_SCHEMES = (
     DimensionValue("annual_filing", "結算申報／決算申報／清算申報"),
-    DimensionValue("withholding", "就源扣繳／扣繳申報"),
+    DimensionValue(
+        "withholding",
+        "就源扣繳／扣繳申報",
+        "本情境的規範內容是扣繳義務時選用。taxpayer_class 仍填所得歸屬人，"
+        "不要填扣繳義務人。",
+    ),
     DimensionValue("profit_distribution", "盈餘分配／未分配盈餘加徵"),
     DimensionValue("not_taxable", "免稅／不計入所得／不課稅"),
 )
@@ -65,6 +86,28 @@ _TW_INCOME_SCENARIO_KEYS = (
     DimensionValue("loss_carryforward", "虧損扣除（前十年虧損互抵）"),
     DimensionValue("offshore_banking_unit", "國際金融業務分行（OBU）相關所得"),
 )
+
+# Rules that resolve choices the vocabulary alone leaves open. Every rule here
+# exists because two runs of the same statute answered it differently.
+_TW_INCOME_RULES = (
+    "`taxpayer_class` 一律填「稅捐所歸屬的人」，不填代為申報或扣繳的人。"
+    "扣繳義務人、代理人、負責人都不是 taxpayer_class 的合法值 —— "
+    "那份義務由 `tax_scheme=withholding` 表達。",
+    "信託所得預設 `taxpayer_class=beneficiary`；只有受益人不特定或尚未存在時"
+    "（所得稅法第3條之4第3項）才填 `trustee`。",
+    "若同一條文同時規範所得人與扣繳義務人，視為同一個情境，"
+    "填所得人的 taxpayer_class 並以 `tax_scheme=withholding` 標示。",
+)
+
+_RULES: dict[tuple[str, str], tuple[str, ...]] = {
+    ("TW", "tw_income"): _TW_INCOME_RULES,
+}
+
+
+def get_identity_rules(country: str, tax_key: str) -> tuple[str, ...]:
+    """Disambiguation rules for dimension choices in this tax regime."""
+    return _RULES.get((country.upper(), tax_key), ())
+
 
 _REGISTRY: dict[tuple[str, str], dict[str, tuple[DimensionValue, ...]]] = {
     ("TW", "tw_income"): {
