@@ -36,6 +36,17 @@ DIMENSION_ORDER = (
 # legal form. Roles in a particular relationship (受託人、受益人、扣繳義務人)
 # belong to `scenario_key` and `tax_scheme`, which already carry them.
 _TW_INCOME_TAXPAYER_CLASSES = (
+    # Most provisions do not distinguish by taxpayer class at all — 房地合一,
+    # 信託, and the withholding schedule apply to individuals and enterprises
+    # alike. Without a value for that, the model had to name one of five
+    # classes anyway, and two runs named different ones for the same row. An
+    # answer the vocabulary cannot express gets invented.
+    DimensionValue(
+        "all_taxpayers",
+        "不分主體類別（條文對各類納稅義務人一體適用）",
+        "**預設值**。除非條文明確只適用某一類主體，或針對不同主體訂有不同規範，"
+        "否則填本值。",
+    ),
     DimensionValue("resident_individual", "中華民國境內居住之個人（居住者）"),
     DimensionValue("nonresident_individual", "非中華民國境內居住之個人（非居住者）"),
     DimensionValue("domestic_enterprise", "總機構在中華民國境內之營利事業"),
@@ -87,6 +98,9 @@ _TW_INCOME_RULES = (
     "`taxpayer_class` 只回答「納稅的是什麼樣的主體」——居住者/非居住者、"
     "營利事業/個人。**不要填在法律關係中的角色**：受託人、受益人、"
     "扣繳義務人、代理人都不是合法值。",
+    "條文若未依主體類別而有不同規範（房地合一、信託、各類所得扣繳多屬此類），"
+    "`taxpayer_class` 填 `all_taxpayers`。**不要從五類主體中隨意挑一個** ——"
+    "只有條文明確限定適用對象時，才填具體類別。",
     "信託所得填受益人本身的主體類別（通常是 `resident_individual` 或 "
     "`domestic_enterprise`），並以 `subject_matter=trust_income` 標示其為信託所得；"
     "受益人是否確定、是否為公益信託則由 `scenario_key` 表達"

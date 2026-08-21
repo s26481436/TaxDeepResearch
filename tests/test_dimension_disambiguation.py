@@ -43,8 +43,29 @@ def test_a_role_is_not_a_taxpayer_class():
     assert _classes().isdisjoint({"trustee", "beneficiary"})
 
 
+def test_a_provision_that_names_no_class_has_a_value_to_say_so():
+    """房地合一 and 信託 apply to individuals and enterprises alike.
+
+    With no value for that, the model named one of five classes anyway and two
+    runs named different ones for the same row.
+    """
+    assert "all_taxpayers" in _classes()
+
+
+def test_the_general_case_is_the_first_value_offered():
+    classes = get_dimensions_vocabulary("TW", "tw_income")["taxpayer_class"]
+    assert classes[0].key == "all_taxpayers"
+    assert "預設" in classes[0].description
+
+
+def test_not_choosing_arbitrarily_is_written_into_the_rules():
+    rules = " ".join(get_identity_rules("TW", "tw_income"))
+    assert "all_taxpayers" in rules
+
+
 def test_taxpayer_class_covers_only_residency_and_legal_form():
     assert _classes() == {
+        "all_taxpayers",
         "resident_individual",
         "nonresident_individual",
         "domestic_enterprise",
