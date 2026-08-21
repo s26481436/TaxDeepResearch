@@ -109,6 +109,41 @@ def init_db():
     _initialized_tables = expected
 
 
+def _default_literal(column) -> str | None:
+    """SQL literal that can backfill existing rows when adding a NOT NULL column.
+
+    Only values the model states outright. A callable default may depend on the
+    row being inserted, so it cannot stand in for rows that already exist — the
+    two exceptions are `dict` and `list`, whose empty forms are exactly what the
+    Python-side default would have produced.
+    """
+    from sqlalchemy import JSON
+
+    default = column.default
+    if default is None:
+        return None
+
+    if getattr(default, "is_callable", False):
+        arg = getattr(default, "arg", None)
+        target = getattr(arg, "__wrapped__", arg)
+        if isinstance(column.type, JSON):
+            if target is dict:
+                return "'{}'"
+            if target is list:
+                return "'[]'"
+        return None
+
+    value = getattr(default, "arg", None)
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        escaped = value.replace("'", "''")
+        return f"'{escaped}'"
+    return None
+
+
 def _add_missing_columns(engine) -> None:
     """Add nullable columns the models gained since a database was created.
 
@@ -117,9 +152,16 @@ def _add_missing_columns(engine) -> None:
     populated database fails at the first query naming a new column — with the
     only remedy being to drop the crawl history and start over.
 
-    Deliberately narrow: nullable adds only, which every supported backend
-    accepts without a table rewrite. Anything else (drops, type changes,
+    Deliberately narrow: adds only. Anything else (drops, type changes,
     constraints) needs a real migration and should not be smuggled in here.
+
+    A NOT NULL column is added with its model default as a server default, so
+    existing rows get a value in the same statement. Where no safe default can
+    be derived the column is added nullable rather than skipped: every insert
+    supplies a value through the model default anyway, and a column that is
+    merely permissive beats one that does not exist. Skipping is what this used
+    to do, and `identity_key` — `Mapped[str]`, therefore NOT NULL — was passed
+    over in silence until a query failed with UndefinedColumn much later.
     """
     inspector = inspect(engine)
 
@@ -128,17 +170,58 @@ def _add_missing_columns(engine) -> None:
             continue
         existing = {col["name"] for col in inspector.get_columns(table.name)}
         for column in table.columns:
-            if column.name in existing or not column.nullable or column.primary_key:
+            if column.name in existing or column.primary_key:
                 continue
             ddl = (
                 f'ALTER TABLE "{table.name}" '
                 f'ADD COLUMN "{column.name}" {column.type.compile(engine.dialect)}'
             )
+            note = ""
+            if not column.nullable:
+                literal = _default_literal(column)
+                if literal is None:
+                    note = " (as nullable: no safe default for a NOT NULL add)"
+                    logger.warning(
+                        "Adding %s.%s as nullable — the model declares it NOT NULL but "
+                        "supplies no literal default to backfill existing rows with.",
+                        table.name,
+                        column.name,
+                    )
+                else:
+                    ddl += f" DEFAULT {literal} NOT NULL"
             with engine.begin() as conn:
                 conn.execute(text(ddl))
-            logger.info("Added missing column %s.%s", table.name, column.name)
+            logger.info("Added missing column %s.%s%s", table.name, column.name, note)
 
     _widen_varchar_columns(engine)
+    _report_columns_still_missing(engine)
+
+
+def _report_columns_still_missing(engine) -> None:
+    """Complain at startup about columns the backfill could not add.
+
+    The previous silent skip turned a schema gap into an UndefinedColumn raised
+    from deep inside an extraction run, naming one column out of however many
+    were missing. Whatever cannot be added should be said here, once, in full.
+    """
+    inspector = inspect(engine)
+    missing: list[str] = []
+    for table in Base.metadata.sorted_tables:
+        if not inspector.has_table(table.name):
+            continue
+        existing = {col["name"] for col in inspector.get_columns(table.name)}
+        missing.extend(
+            f"{table.name}.{column.name}"
+            for column in table.columns
+            if column.name not in existing
+        )
+    if missing:
+        logger.error(
+            "Schema is missing %d column(s) the models require: %s. "
+            "Queries naming them will fail.",
+            len(missing),
+            ", ".join(missing),
+        )
 
 
 def _widen_varchar_columns(engine) -> None:
