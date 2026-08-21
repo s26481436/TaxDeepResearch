@@ -112,6 +112,13 @@ _TW_INCOME_RULES = (
     "那屬於該列的 `tax_base` 或 `formula` 內容，仍依實際申報方式填 tax_scheme。",
     "若同一條文同時規範所得人與扣繳義務人，視為同一個情境，"
     "填所得人的 taxpayer_class 並以 `tax_scheme=withholding` 標示。",
+    "**詞彙表中的非預設值就是「必須另成一列」的定義。** 條文若規範的標的"
+    "對應到 `subject_matter` 的某個專門值（證券交易所得、期貨交易所得、"
+    "房地交易所得、信託財產所得），必須使用該值並另成一列，"
+    "不得併入 `general_income`。`general_income` 只用於條文未特別規範的一般所得。",
+    "`scenario_key` 同理：條文若規範的是房地合一2.0、預售屋、視同房地交易、"
+    "變更會計年度、虧損扣除、OBU 等特定情境，必須填對應的值並另成一列，"
+    "不得填 `standard` 併入一般情境。`standard` 只用於沒有這些特別規定的情境。",
 )
 
 _RULES: dict[tuple[str, str], tuple[str, ...]] = {
