@@ -237,6 +237,24 @@ def _echo_provenance() -> None:
     typer.echo(f"prompt {prompts.PROMPT_VERSION} — {Path(prompts.__file__).parent.parent}")
 
 
+def _echo_coverage_report(stats: dict) -> None:
+    """Name the vocabulary values this run produced no row for.
+
+    Identity-keyed upsert means a topic missed by one run is not lost — the row
+    stays and simply is not refreshed. That is survivable, and silent, which is
+    the combination worth printing.
+    """
+    unused = stats.get("unused_dimension_values") or []
+    if not unused:
+        return
+    typer.echo(f"\n○ {len(unused)} 個受控維度值本次沒有對應的規範列：")
+    for value in unused[:20]:
+        typer.echo(f"  · {value}")
+    if len(unused) > 20:
+        typer.echo(f"  · …另有 {len(unused) - 20} 筆")
+    typer.echo("   這些列（若先前抽取過）保留在矩陣中，但本次未重新確認。")
+
+
 def _echo_identity_report(stats: dict) -> None:
     """Say how many rows carry a controlled identity, and why the rest do not.
 
@@ -370,6 +388,7 @@ def extract_requirements(
             for r in stats.get("results", []):
                 _echo_failed_batches(r)
             _echo_identity_report(stats)
+            _echo_coverage_report(stats)
             if dry_run:
                 _echo_preview(stats)
             if stats["dropped_citations"]:
@@ -466,6 +485,7 @@ def extract_requirements(
     if stats["uncited_fields"]:
         typer.echo(f"⚠ {stats['uncited_fields']} 個欄位無條文依據，已標記待覆核")
     _echo_identity_report(stats)
+    _echo_coverage_report(stats)
     for item in stats["unresolved"]:
         typer.echo(f"  · 待人工補充：{item}")
     if dry_run:

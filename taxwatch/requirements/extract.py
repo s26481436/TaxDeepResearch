@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -102,6 +103,46 @@ class MissingParentLaw(LookupError):
         self.status = status
 
 
+def _intersect_unused(carried: list[str] | None, incoming: list[str]) -> list[str]:
+    """A value is missing from the matrix only if every document missed it."""
+    if carried is None:
+        return list(incoming)
+    incoming_set = set(incoming)
+    return [value for value in carried if value in incoming_set]
+
+
+def _unused_dimension_values(
+    country: str, tax_key: str, processed_rows: list[dict[str, Any]]
+) -> list[str]:
+    """Vocabulary values this run produced no row for.
+
+    Two runs of the same statute covered 虧損扣除 and 變更會計年度 in one and
+    OBU and 受益人不特定 in the next. Identity-keyed upsert means the matrix
+    accumulates the union rather than duplicating, so the gap is survivable —
+    but only if it is visible. A row count cannot say which topic went missing.
+    """
+    from taxwatch.requirements.dimensions import (
+        DIMENSION_ORDER,
+        get_dimensions_vocabulary,
+    )
+
+    vocab = get_dimensions_vocabulary(country, tax_key)
+    if not vocab:
+        return []
+
+    unused: list[str] = []
+    for dim_name in DIMENSION_ORDER:
+        seen = {
+            item["valid_dims"].get(dim_name, "")
+            for item in processed_rows
+            if item["valid_dims"].get(dim_name)
+        }
+        for value in vocab.get(dim_name, ()):
+            if value.key not in seen:
+                unused.append(f"{dim_name}={value.key}（{value.label_zh}）")
+    return unused
+
+
 def extract_for_tax(
     session: Session,
     tax_key: str,
@@ -146,6 +187,10 @@ def extract_for_tax(
         "rows_without_identity": 0,
         "unknown_dimension_values": [],
         "incomplete_dimensions": [],
+        # Only values no document covered. A value one statute cannot express
+        # is not a gap in the matrix if another statute supplies it, so these
+        # intersect across documents rather than accumulating.
+        "unused_dimension_values": None,
         # Carried up from each document so --dry-run can show what a run would
         # produce. Without it the tax-level path reports a count and nothing
         # else, which is the one thing a dry run exists to avoid.
@@ -186,12 +231,18 @@ def extract_for_tax(
                 stat.get("unknown_dimension_values", [])
             )
             overall_stats["incomplete_dimensions"].extend(stat.get("incomplete_dimensions", []))
+            overall_stats["unused_dimension_values"] = _intersect_unused(
+                overall_stats.get("unused_dimension_values"),
+                stat.get("unused_dimension_values", []),
+            )
         except MissingParentLaw:
             if not allow_child:
                 raise
         except NoSourceDocument:
             continue
 
+    if overall_stats["unused_dimension_values"] is None:
+        overall_stats["unused_dimension_values"] = []
     return overall_stats
 
 
@@ -398,6 +449,10 @@ def extract_for_document(
         # row count produced nothing this feature can use, and that must be
         # visible without counting the printed lines.
         "rows_without_identity": 0,
+        # Vocabulary values this run never produced. Coverage varies run to run
+        # (虧損扣除 in one, OBU in the next), and the count of rows cannot show
+        # which topic went missing.
+        "unused_dimension_values": [],
         "truncated_nodes": 0,
         "dropped_citations": 0,
         "uncited_fields": 0,
@@ -415,6 +470,9 @@ def extract_for_document(
     # key nor a reason.
     stats["rows_without_identity"] = sum(
         1 for item in processed_rows if not item["identity_key"]
+    )
+    stats["unused_dimension_values"] = _unused_dimension_values(
+        resolved_country, resolved_tax_key, processed_rows
     )
     for item in processed_rows:
         row_label = (item["row"].scenario or "").strip()
@@ -687,6 +745,7 @@ def _upsert_requirement(
             requirement.dimensions = valid_dims
 
     requirement.status = RequirementStatus.DRAFT
+    requirement.last_seen_at = datetime.utcnow()
     requirement.model = model
     requirement.prompt_version = PROMPT_VERSION
     if document is not None:
