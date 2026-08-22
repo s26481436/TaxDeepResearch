@@ -41,7 +41,12 @@ def normalize_entity_key(key: str) -> str:
     key = re.sub(r"\s+", "", key)
     key = key.replace("臺", "台")
     key = key.replace("　", "")
-    key = key.strip("《》")
+    # Every 《》, not just the outermost pair. `strip` leaves the closing bracket
+    # behind whenever the title is not the whole string — 《所得稅法》#4 became
+    # 所得稅法》#4, and 《中华人民共和国增值税法》实施条例 became
+    # 增值税法》实施条例 — and a key carrying a stray 》 matches nothing. The
+    # brackets quote a law's name in Chinese; they are never part of it.
+    key = key.replace("《", "").replace("》", "")
     # The official long form and the working name are the same law. Left apart,
     # 中华人民共和国增值税法实施条例 never finds its parent 增值税法, because the
     # parent derived from its title carries a prefix the citing text omits.
