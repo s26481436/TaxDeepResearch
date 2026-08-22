@@ -249,6 +249,14 @@ TAX_TYPES: tuple[TaxType, ...] = (
         (
             "所得稅",
             "所得税",
+            # 扣繳 is a way of collecting 所得稅, not a tax of its own — the same
+            # call the requirement dimensions make, where it is a `tax_scheme`
+            # rather than a taxpayer or a tax type. Without these,
+            # 各類所得扣繳率標準 matches nothing (its title says 所得, never
+            # 所得稅) and lands in tw_other, out of reach of the 所得稅 matrix
+            # whose rates it sets.
+            "扣繳",
+            "扣缴",
         ),
     ),
     # 土地增值稅 must be matched before 房屋稅 / 營業稅

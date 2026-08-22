@@ -15,6 +15,13 @@ sources:
         - "G0340096"  # 土地稅法（75 條，異動 20250124）
         - "G0340102"  # 房屋稅條例（26 條，異動 20240103）
         - "G0340128"  # 特種貨物及勞務稅條例（27 條，異動 20150624）
+        # Not a tax statute, but 第10條（研發投抵）、第10-1條（智慧機械及5G投抵）、
+        # 第23-1～23-3條（新創投資抵減）set 營所稅與綜所稅 credits that a filer
+        # must apply, and they change more often than the tax acts do. Verified
+        # against law.moj.gov.tw 2026-08-22; 114-05-07 修正之第22、67-3條 await a
+        # 行政院 commencement date, so expect provisions here that are not yet
+        # in force.
+        - "J0040051"  # 產業創新條例（租稅優惠：研發、智慧機械、新創投資抵減）
         # Order batch (ChOrder.json):
         - "G0340051"  # 營利事業所得稅查核準則（143 條，異動 20231211）
 
