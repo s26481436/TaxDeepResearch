@@ -164,6 +164,220 @@ _CN_VAT_RULES = (
     "`standard` 只用於沒有這些特別規定的情境。",
 )
 
+# ---------------------------------------------------------------------------
+# CN — 企業所得稅 (cn_enterprise_income)
+#
+# 主體軸：居民企業／非居民企業（有無設立機構場所）
+# 方法軸：查賬徵收／核定徵收、源泉扣繳、預繳申報、清算申報
+# 標的軸：生產經營所得、清算所得、股息紅利、利息租金特許權使用費、財產轉讓所得
+# 情境軸：小型微利企業、高新技術企業、研發費用加計扣除、特別納稅調整（關聯交易／受控外國企業）、常駐代表機構等
+_CN_ENTERPRISE_INCOME_TAXPAYER_CLASSES = (
+    DimensionValue(
+        "all_taxpayers",
+        "不分企業類別（條文對各類企業一體適用）",
+        "**預設值**。除非條文明確只適用某一類企業，否則填本值。",
+    ),
+    DimensionValue("resident_enterprise", "居民企業（依法在中國境內成立，或實際管理機構在境內）"),
+    DimensionValue(
+        "nonresident_with_establishment",
+        "非居民企業（在境內設立機構、場所）",
+        "取得來源於中國境內且與其機構場所有實際聯繫之所得。",
+    ),
+    DimensionValue(
+        "nonresident_without_establishment",
+        "非居民企業（在境內未設立機構場所，或有機構場所但所得與之無實際聯系）",
+        "取得來源於中國境內所得，通常適用源泉扣繳。",
+    ),
+)
+
+_CN_ENTERPRISE_INCOME_TAX_SCHEMES = (
+    DimensionValue("annual_settlement", "年度匯算清繳（年終結算申報）"),
+    DimensionValue("provisional_filing", "按月或按季預繳申報"),
+    DimensionValue(
+        "withholding",
+        "源泉扣繳（支付人扣繳申報）",
+        "非居民企業取得股息、利息、租金、特許權使用費或財產轉讓所得由支付人扣繳。",
+    ),
+    DimensionValue("deemed_profit_collection", "核定徵收（按核定應稅所得率或核定應納稅額徵收）"),
+    DimensionValue("liquidation_filing", "清算所得申報"),
+)
+
+_CN_ENTERPRISE_INCOME_SUBJECT_MATTERS = (
+    DimensionValue("production_business_income", "生產經營所得及其他一般所得"),
+    DimensionValue("dividend_equity_income", "股息、紅利等權益性投資收益"),
+    DimensionValue("interest_rental_royalty", "利息、租金、特許權使用費所得"),
+    DimensionValue("property_transfer_income", "財產轉讓所得（含股權轉讓、不動產轉讓）"),
+    DimensionValue("liquidation_income", "清算所得"),
+    DimensionValue("deemed_sales_income", "視同銷售所得"),
+)
+
+_CN_ENTERPRISE_INCOME_SCENARIO_KEYS = (
+    DimensionValue("standard", "標準／一般情境"),
+    DimensionValue("small_low_profit_enterprise", "小型微利企業（優惠稅率與減免）"),
+    DimensionValue("high_tech_enterprise", "高新技術企業、技術先進型服務企業（15%優惠稅率）"),
+    DimensionValue("rnd_expense_super_deduction", "研發費用加計扣除"),
+    DimensionValue("accelerated_depreciation", "固定資產加速折舊／一次性扣除"),
+    DimensionValue("loss_carryforward", "虧損結轉彌補（一般5年，特定企業最長8/10年）"),
+    DimensionValue("special_tax_adjustment", "特別納稅調整（關聯交易、轉讓定價、受控外國企業、資本弱化）"),
+    DimensionValue("enterprise_restructuring", "企業重組特殊性／一般性稅務處理"),
+    DimensionValue("foreign_representative_office", "外國企業常駐代表機構經費支出換算收入徵稅等專門規定"),
+    DimensionValue("nonprofit_organization", "非營利組織免稅收入與申報"),
+)
+
+_CN_ENTERPRISE_INCOME_RULES = (
+    "`taxpayer_class` 只回答「納稅的是什麼樣的主體」——居民企業／非居民企業。"
+    "**扣繳義務人、清算人、代理人是角色，不是主體類別**——扣繳義務由 `tax_scheme=withholding` 表達。",
+    "條文若未依企業類別而有不同規範（如收入認列通則、一般扣除項目、稅收徵管），"
+    "`taxpayer_class` 填 `all_taxpayers`。**不要隨意挑一個具體類別。**",
+    "`tax_scheme` 只回答「怎麼課、怎麼申報」，不回答「課不課」——免稅、減計收入、"
+    "稅額抵免**不是** tax_scheme 的值，屬於該列的 `tax_base` 或 `formula` 內容。",
+    "非居民企業在境內未設立機構場所取得所得，由支付人代扣代繳時，"
+    "`taxpayer_class` 填 `nonresident_without_establishment`，`tax_scheme` 填 `withholding`。",
+    "外國企業常駐代表機構屬於在境內設立機構、場所（`taxpayer_class=nonresident_with_establishment`），"
+    "其按經費支出換算收入等專門規定由 `scenario_key=foreign_representative_office` 表達。",
+    "**詞彙表中的非預設值就是「必須另成一列」的定義。** 條文若規範的是小型微利企業、"
+    "高新技術企業、研發費用加計扣除、固定資產加速折舊、虧損結轉、特別納稅調整、企業重組、常駐代表機構等特定優惠或專項規則，"
+    "必須使用對應的 `scenario_key` 並另成一列，不得填 `standard` 併入一般情境。",
+    "標的若為股息紅利、利息租金特許權、財產轉讓、清算所得等特定標的，"
+    "必須填對應的 `subject_matter` 並另成一列；`production_business_income` 僅用於一般生產經營所得。",
+)
+
+# ---------------------------------------------------------------------------
+# CN — 個人所得稅 (cn_individual_income)
+#
+# 主體軸：居民個人／非居民個人
+# 方法軸：綜合所得年度匯算、預扣預繳、分類所得按次／按月代扣代繳、經營所得按年申報
+# 標的軸：工資薪金、勞務報酬、稿酬、特許權使用費、經營所得、利息股息紅利、財產租賃、財產轉讓、偶然所得
+# 情境軸：專項附加扣除、全年一次性獎金、外籍個人補貼、股權激勵、個人養老金、經營所得核定徵收等
+_CN_INDIVIDUAL_INCOME_TAXPAYER_CLASSES = (
+    DimensionValue(
+        "all_taxpayers",
+        "不分個人類別（條文對全體個人一體適用）",
+        "**預設值**。除非條文明確只適用某一類主體，否則填本值。",
+    ),
+    DimensionValue("resident_individual", "居民個人（在中國境內有住所，或無住所而在境內居住滿183天）"),
+    DimensionValue("nonresident_individual", "非居民個人（在中國境內無住所且不居住，或居住不滿183天）"),
+    DimensionValue("sole_proprietor_partner", "個體工商戶業主、個人獨資企業投資者、合夥企業個人合夥人"),
+)
+
+_CN_INDIVIDUAL_INCOME_TAX_SCHEMES = (
+    DimensionValue("annual_comprehensive_settlement", "綜合所得年度匯算清繳（次年3月1日至6月30日）"),
+    DimensionValue("withholding_advance_payment", "扣繳義務人預扣預繳（工資薪金累計預扣法、勞務/稿酬/特許權預扣）"),
+    DimensionValue("withholding_categorized", "分類所得按次／按月代扣代繳（利息股息紅利、財產租賃、財產轉讓、偶然所得）"),
+    DimensionValue("business_income_annual_filing", "經營所得按年申報（按月/按季預繳，次年3月31日前匯算清繳）"),
+    DimensionValue("self_declaration", "納稅人自覺申報（取得境外所得、無扣繳義務人等自行申報）"),
+)
+
+_CN_INDIVIDUAL_INCOME_SUBJECT_MATTERS = (
+    DimensionValue("comprehensive_income", "綜合所得（工資薪金、勞務報酬、稿酬、特許權使用費合併）"),
+    DimensionValue("wages_salaries", "工資、薪金所得"),
+    DimensionValue("remuneration_for_services", "勞務報酬所得"),
+    DimensionValue("manuscript_remuneration", "稿酬所得"),
+    DimensionValue("royalties", "特許權使用費所得"),
+    DimensionValue("business_income", "經營所得（個體工商戶、獨資合夥、承包承租經營）"),
+    DimensionValue("interest_dividends", "利息、股息、紅利所得"),
+    DimensionValue("property_leasing", "財產租賃所得"),
+    DimensionValue("property_transfer", "財產轉讓所得（股權、不動產轉讓等）"),
+    DimensionValue("contingent_income", "偶然所得（中獎、受贈等）"),
+)
+
+_CN_INDIVIDUAL_INCOME_SCENARIO_KEYS = (
+    DimensionValue("standard", "標準／一般情境"),
+    DimensionValue("special_additional_deductions", "專項附加扣除（子女教育、繼續教育、大病醫療、住房貸款利息、住房租金、贍養老人、3歲以下嬰幼兒照護）"),
+    DimensionValue("annual_one_off_bonus", "全年一次性獎金單獨計稅優惠"),
+    DimensionValue("equity_incentives", "上市公司股權激勵、非上市公司股權獎勵遞延納稅"),
+    DimensionValue("foreign_allowances", "外籍個人八項津貼補貼（住房、子女教育等）及稅收協定待遇"),
+    DimensionValue("individual_pension", "個人養老金遞延納稅優惠"),
+    DimensionValue("severance_pay", "解除勞動關係一次性補償金"),
+    DimensionValue("personal_transfer_housing", "個人轉讓自用達5年以上且為唯一家庭生活用房"),
+    DimensionValue("business_deemed_collection", "經營所得核定徵收"),
+)
+
+_CN_INDIVIDUAL_INCOME_RULES = (
+    "`taxpayer_class` 只回答「納稅的是什麼樣的主體」——居民個人／非居民個人／經營主體。"
+    "**扣繳義務人是角色，不是主體類別**——扣繳責任由 `tax_scheme=withholding_advance_payment` 或 `withholding_categorized` 表達。"
+    "無住所外籍個人依境內居住天數分別歸入 `resident_individual` 或 `nonresident_individual`，"
+    "其外籍專屬津貼補貼等規定由 `scenario_key=foreign_allowances` 表達，不得混淆主體類別。",
+    "條文若對居民與非居民一體適用，`taxpayer_class` 填 `all_taxpayers`。**不要隨意挑一個具體類別。**",
+    "`tax_scheme` 只回答「怎麼課、怎麼申報」，不回答「課不課」——免稅所得（如國債利息、保險賠款）、"
+    "減徵所得**不是** tax_scheme 的值，屬於該列的 `tax_base` 或 `formula` 內容。",
+    "綜合所得的四項（工資薪金、勞務報酬、稿酬、特許權使用費）在年度匯算時合併為 `comprehensive_income`，"
+    "在預扣預繳階段則分別適用不同預扣規則，應按具體所得類型填寫 `subject_matter` 並與預扣方式匹配。",
+    "**詞彙表中的非預設值就是「必須另成一列」的定義。** 條文若規範的是專項附加扣除、"
+    "全年一次性獎金、股權激勵、外籍津貼、個人養老金、離職補償金、換購自住房退稅等特定政策，"
+    "必須使用對應的 `scenario_key` 並另成一列，不得填 `standard` 併入一般情境。",
+    "不同分類所得（利息股息、財產租賃、財產轉讓、偶然所得、經營所得）稅率與計稅方式互異，"
+    "必須使用專門的 `subject_matter` 並另成一列。",
+)
+
+# ---------------------------------------------------------------------------
+# US — 聯邦所得稅 (us_income: IRC / 26 CFR)
+#
+# 主體軸：individual / corporation / partnership / s_corporation / trust_estate / nonresident_alien / foreign_corporation
+# 方法軸：annual_return / withholding / estimated_tax / backup_withholding / information_return
+# 標的軸：general_taxable_income / wages_compensation / capital_gains / dividends_interest / effectively_connected_income / fixed_determinable_annual_periodical / pass_through_income
+# 情境軸：standard, alternative_minimum_tax, section_179_depreciation, net_operating_loss, global_intangible_low_taxed_income, foreign_tax_credit, qualified_business_income
+_US_INCOME_TAXPAYER_CLASSES = (
+    DimensionValue(
+        "all_taxpayers",
+        "不分納稅主體類別（適用於全體納稅人）",
+        "**預設值**。除非條文明確只適用特定組織型態或個人，否則填本值。",
+    ),
+    DimensionValue("individual", "美國公民或稅務居民個人 (U.S. Citizen or Resident Alien)"),
+    DimensionValue("corporation", "一般 C 公司 (C Corporation, IRC Sec. 11)"),
+    DimensionValue("partnership", "合夥事業及多成員穿透個體 (Partnership, Form 1065)"),
+    DimensionValue("s_corporation", "小型企業 S 公司 (S Corporation, Form 1120-S)"),
+    DimensionValue("trust_estate", "信託與遺產 (Trusts and Estates, Form 1041)"),
+    DimensionValue("nonresident_alien", "非居住外國人個人 (Nonresident Alien Individual, Form 1040-NR)"),
+    DimensionValue("foreign_corporation", "外國公司 (Foreign Corporation, Form 1120-F)"),
+    DimensionValue("tax_exempt_organization", "免稅機構及非營利組織 (Tax-Exempt Organization, Form 990)"),
+)
+
+_US_INCOME_TAX_SCHEMES = (
+    DimensionValue("annual_return", "年度所得稅申報 (Annual Income Tax Return, e.g. Form 1040/1120)"),
+    DimensionValue("withholding", "就源扣繳申報 (Withholding Tax, e.g. Wage Withholding, NRA 30% or Treaty Withholding, Form 1042)"),
+    DimensionValue("estimated_tax", "按季預估稅款申報與繳納 (Estimated Tax Payments, Form 1040-ES/1120-W)"),
+    DimensionValue("backup_withholding", "後備扣繳 (Backup Withholding, IRC Sec. 3406)"),
+    DimensionValue("information_return", "資訊性申報 (Information Returns, e.g. Form 1099/W-2/K-1 reporting)"),
+)
+
+_US_INCOME_SUBJECT_MATTERS = (
+    DimensionValue("general_taxable_income", "一般應稅所得 (Gross Income / General Taxable Income)"),
+    DimensionValue("wages_compensation", "薪資、獎金與勞務報酬 (Wages, Salaries, and Compensation)"),
+    DimensionValue("capital_gains", "資本利得（長期與短期資本利得）(Capital Gains and Losses)"),
+    DimensionValue("dividends_interest", "股利與利息所得 (Qualified/Ordinary Dividends and Interest)"),
+    DimensionValue("effectively_connected_income", "與美國貿易或業務實際關聯之所得 (Effectively Connected Income - ECI)"),
+    DimensionValue("fixed_determinable_income", "固定、可確定、年度或定期之所得 (FDAP Income, IRC Sec. 871/881)"),
+    DimensionValue("pass_through_income", "穿透實體所得分派 (Distributive Share of Partnership/S-Corp Income)"),
+    DimensionValue("branch_profits", "外國公司分公司利潤稅 (Branch Profits Tax, IRC Sec. 884)"),
+)
+
+_US_INCOME_SCENARIO_KEYS = (
+    DimensionValue("standard", "標準／一般申報情境 (Standard Filing Scenario)"),
+    DimensionValue("alternative_minimum_tax", "最低稅負制 (Alternative Minimum Tax - AMT, Individual & Corporate)"),
+    DimensionValue("section_179_depreciation", "第179條資本資產費用化扣除與加急折舊 (Section 179 and Bonus Depreciation)"),
+    DimensionValue("net_operating_loss", "營業淨虧損結轉 (Net Operating Loss - NOL Carryover)"),
+    DimensionValue("global_intangible_low_taxed_income", "全球無形低稅所得 (GILTI / Subpart F Income, IRC Sec. 951A)"),
+    DimensionValue("foreign_tax_credit", "外國稅額扣抵 (Foreign Tax Credit, Form 1116/1118)"),
+    DimensionValue("qualified_business_income", "合格商業所得扣除 (Section 199A QBI Deduction)"),
+)
+
+_US_INCOME_RULES = (
+    "`taxpayer_class` 只回答「納稅的是什麼樣的法律實體或個人主體」——個人、C公司、合夥事業、外國主體等。"
+    "**扣繳義務人 (Withholding Agent)、受託人 (Fiduciary/Trustee)、發放人 (Payer) 是角色，不是主體類別**——扣繳義務由 `tax_scheme=withholding` 表達。",
+    "條文若未針對特定實體類型區分（如廣泛適用的折舊、會計方法、申報一般規定），"
+    "`taxpayer_class` 填 `all_taxpayers`。**不要隨意挑選一個具體實體。**",
+    "`tax_scheme` 只回答「怎麼課、怎麼申報」，不回答「課不課」——豁免 (Exclusion)、免稅 (Exemption) "
+    "**不是** tax_scheme 的值，屬於該列的 `tax_base` 或 `formula` 內容。",
+    "個人所得稅率級距依報稅身分（Single／Married Filing Jointly／Married Filing Separately／Head of Household／Qualifying Surviving Spouse）而異。"
+    "各報稅身分的級距與標準扣除額屬於同一列 `tax_rate` 與 `deductions` 的內容，逐字照抄全部，不要為每個報稅身分另成一列。",
+    "**詞彙表中的非預設值就是「必須另成一列」的定義。** 條文若規範的是 "
+    "AMT 最低稅負制、Section 179 加急折舊、NOL 虧損結轉、GILTI/Subpart F 境外所得、Section 199A QBI 扣除等專門制度，"
+    "必須使用對應的 `scenario_key` 並另成一列，不得填 `standard` 併入一般情境。",
+    "資本利得 (Capital Gains)、股利利息 (Dividends/Interest)、外國人 ECI 或 FDAP 所得等各具獨立稅率與課稅機制，"
+    "必須填對應的 `subject_matter` 並另成一列。",
+)
+
 # Rules that resolve choices the vocabulary alone leaves open. Every rule here
 # exists because two runs of the same statute answered it differently.
 _TW_INCOME_RULES = (
@@ -196,6 +410,9 @@ _TW_INCOME_RULES = (
 _RULES: dict[tuple[str, str], tuple[str, ...]] = {
     ("TW", "tw_income"): _TW_INCOME_RULES,
     ("CN", "cn_vat"): _CN_VAT_RULES,
+    ("CN", "cn_enterprise_income"): _CN_ENTERPRISE_INCOME_RULES,
+    ("CN", "cn_individual_income"): _CN_INDIVIDUAL_INCOME_RULES,
+    ("US", "us_income"): _US_INCOME_RULES,
 }
 
 
@@ -217,6 +434,24 @@ _REGISTRY: dict[tuple[str, str], dict[str, tuple[DimensionValue, ...]]] = {
         "tax_scheme": _CN_VAT_TAX_SCHEMES,
         "subject_matter": _CN_VAT_SUBJECT_MATTERS,
         "scenario_key": _CN_VAT_SCENARIO_KEYS,
+    },
+    ("CN", "cn_enterprise_income"): {
+        "taxpayer_class": _CN_ENTERPRISE_INCOME_TAXPAYER_CLASSES,
+        "tax_scheme": _CN_ENTERPRISE_INCOME_TAX_SCHEMES,
+        "subject_matter": _CN_ENTERPRISE_INCOME_SUBJECT_MATTERS,
+        "scenario_key": _CN_ENTERPRISE_INCOME_SCENARIO_KEYS,
+    },
+    ("CN", "cn_individual_income"): {
+        "taxpayer_class": _CN_INDIVIDUAL_INCOME_TAXPAYER_CLASSES,
+        "tax_scheme": _CN_INDIVIDUAL_INCOME_TAX_SCHEMES,
+        "subject_matter": _CN_INDIVIDUAL_INCOME_SUBJECT_MATTERS,
+        "scenario_key": _CN_INDIVIDUAL_INCOME_SCENARIO_KEYS,
+    },
+    ("US", "us_income"): {
+        "taxpayer_class": _US_INCOME_TAXPAYER_CLASSES,
+        "tax_scheme": _US_INCOME_TAX_SCHEMES,
+        "subject_matter": _US_INCOME_SUBJECT_MATTERS,
+        "scenario_key": _US_INCOME_SCENARIO_KEYS,
     },
 }
 
